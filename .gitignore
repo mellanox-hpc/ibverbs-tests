@@ -1,3 +1,16 @@
+/out
+
+/Makefile
+/config.guess
+/config.log
+/config.status
+/config.sub
+/config/
+/libtool
+/ltmain.sh
+.deps/
+.dirstamp
+
 #### joe made this: http://goel.io/joe
 
 #####=== Vim ===#####
@@ -41,4 +54,23 @@ Session.vim
 *.i*86
 *.x86_64
 *.hex
+
+#### joe made this: http://goel.io/joe
+
+#####=== Autotools ===#####
+
+# http://www.gnu.org/software/automake
+
+Makefile.in
+
+# http://www.gnu.org/software/autoconf
+
+/autom4te.cache
+/aclocal.m4
+/compile
+/configure
+/depcomp
+/install-sh
+/missing
+/stamp-h1
 
