@@ -7,4 +7,8 @@ out_ibv_test_SOURCES = src/main.cc src/common.cc src/common.h
 out_ibv_test_SOURCES += src/gtest/gtest.h
 out_ibv_test_SOURCES += src/general/loopback.cc
 
+if PEER_DIRECT
+out_ibv_test_SOURCES += src/peerdirect/loopback.cc
+endif
+
 EXTRA_DIST = autogen.sh

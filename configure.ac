@@ -9,6 +9,11 @@ AC_GNU_SOURCE
 AC_PROG_LN_S
 
 AC_CHECK_LIB([ibverbs], [ibv_get_device_list], [], [AC_MSG_ERROR([libibverbs not found])])
+AC_CHECK_HEADER([infiniband/peer_ops.h], [
+AC_CHECK_DECL([ibv_exp_peer_commit_qp], [peerdirect=1], [], [
+#include<infiniband/peer_ops.h>
+])])
+AM_CONDITIONAL([PEER_DIRECT], [test x$peerdirect = x1])
 
 AC_HEADER_STDC
 AC_C_CONST
