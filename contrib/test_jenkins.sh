@@ -15,6 +15,7 @@ fi
 
 make_opt="-j$(($(nproc) - 1))"
 inst=${WORKSPACE}/install
+ibv_test=$inst/bin/ibv_test
 
 echo Starting on host: $(hostname)
 
@@ -35,7 +36,6 @@ if [ -n "$JENKINS_RUN_TESTS" ]; then
         TIMEOUT=""
     fi
 
-    ibv_test=$(find $INST/ -name ibv_test)
 
     VALGRIND_ARGS="--show-reachable=yes --xml=yes --gen-suppressions=all --tool=memcheck --leak-check=full --track-origins=yes --fair-sched=try"
 
