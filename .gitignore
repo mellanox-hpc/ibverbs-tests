@@ -56,3 +56,4 @@ tests/*/.dirstamp
 libtool
 config.*
 autom4te.cache
+ibv_test
