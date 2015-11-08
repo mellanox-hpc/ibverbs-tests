@@ -43,6 +43,9 @@ ibv_test_SOURCES = \
 			 include/gtest.h \
 			 src/main.cc \
 			 src/sys.cc
+# Add tests HERE
+ibv_test_SOURCES += \
+			 tests/general/init.cc
 
 EXTRA_DIST = src/gtest-all.cc
 EXTRA_DIST += autogen.sh
