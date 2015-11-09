@@ -64,7 +64,6 @@ else
     fi
 fi
 
-
 dnl Checks for libraries
 AC_CHECK_LIB([ibverbs], [ibv_get_device_list], [], [AC_MSG_ERROR([libibverbs not found])])
 
@@ -85,6 +84,8 @@ AC_CHECK_HEADER(valgrind/memcheck.h,
         AC_MSG_ERROR([Valgrind memcheck support requested, but <valgrind/memcheck.h> not found.])
     fi])
 fi
+
+AC_CHECK_HEADERS([infiniband/verbs_exp.h])
 
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
