@@ -42,3 +42,18 @@ Session.vim
 *.x86_64
 *.hex
 
+# Temporal config files
+*.in
+*.m4
+configure
+config/
+Makefile
+stamp-h1
+src/.dirstamp
+src/.deps
+tests/*/.deps
+tests/*/.dirstamp
+libtool
+config.*
+autom4te.cache
+ibv_test

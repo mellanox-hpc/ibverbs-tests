@@ -1,0 +1,28 @@
+## How to build tests
+
+./autogen.sh
+./configure
+make
+
+## How to run CD tests:
+
+for dev in $(ibstat -l); do
+	hca="${dev}:1";
+        GTEST_SHUFFLE=1 IBV_TEST_DEV=${hca} ibv_test;
+done
+
+## How to run CD tests w/ valgrind
+
+valgrind --tool=memcheck --leak-check=full --track-origins=yes ibv_test
+
+## Directory Structure
+
+* include/          - all global headers
+* docs/             - the documentation folder
+* src/              - soruce code of the tests engine
+* tests/            - all tests should go there
+* tests/general/    - common tests which are not related
+                          to specific feature
+* tests/cross-channel/      - cross-channel specific tests
+* tests/peer-direct/        - peer-direct specific tests
+* tests/FEATURE/	    - new FEATURE tests should be put here
