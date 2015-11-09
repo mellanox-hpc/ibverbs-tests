@@ -49,17 +49,6 @@ AC_PROG_LN_S
 AC_PROG_LIBTOOL
 
 ##########################
-# Enable tests
-#
-AC_ARG_ENABLE(
-    [test],
-    [AC_HELP_STRING([--enable-test],
-                   [Build test programs (default=no)])],
-    [enable_test=$enableval],
-    [enable_test=yes])
-AM_CONDITIONAL(TEST_ENABLE, test x$enable_test = xyes)
-
-##########################
 # Enable support for valgrind
 #
 AC_ARG_WITH([valgrind],
