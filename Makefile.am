@@ -45,7 +45,8 @@ ibv_test_SOURCES = \
 			 src/sys.cc
 # Add tests HERE
 ibv_test_SOURCES += \
-			 tests/general/init.cc
+			 tests/general/init.cc \
+			 tests/cross-channel/query_device_sync.cc
 
 EXTRA_DIST = src/gtest-all.cc
 EXTRA_DIST += autogen.sh
