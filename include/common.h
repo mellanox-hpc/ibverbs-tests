@@ -117,6 +117,15 @@ extern char *gtest_dev_name;
 	} while(0)
 
 
+#define CHECK_TEST_OR_SKIP(FEATURE_NAME) \
+	do{\
+		  if(this->skip_this_test) {\
+			       std::cout << "[  SKIPPED ] Feature " << #FEATURE_NAME << " is not supported" << std::endl;\
+			       return;\
+			    }\
+	} while(0)
+
+
 void sys_hexdump(void *ptr, int buflen);
 uint32_t sys_inet_addr(char* ip);
 
