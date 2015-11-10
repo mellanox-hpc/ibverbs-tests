@@ -46,7 +46,7 @@ ibv_test_SOURCES = \
 # Add tests HERE
 ibv_test_SOURCES += \
 			 tests/general/init.cc \
-			 tests/cross-channel/query_device_sync.cc
+			 tests/cross-channel/query_device.cc
 
 if PEER_DIRECT
 ibv_test_SOURCES +=      tests/peer-direct/loopback.cc
