@@ -88,5 +88,8 @@ protected:
 	struct ibv_device	**dev_list;
 	struct ibv_device	*ibv_dev;
 	struct ibv_context	*ibv_ctx;
+
+	// Set it to be TRUE, if the test should be skipped
+	bool skip_this_test;
 };
 #endif //_IBVERBS_VERBS_TEST_
