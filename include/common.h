@@ -29,6 +29,10 @@
 
 #ifndef _IBVERBS_COMMON_H_
 #define _IBVERBS_COMMON_H_
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <stdio.h>
 #include <errno.h>
 #include <stdint.h>
