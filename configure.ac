@@ -49,17 +49,6 @@ AC_PROG_LN_S
 AC_PROG_LIBTOOL
 
 ##########################
-# Enable tests
-#
-AC_ARG_ENABLE(
-    [test],
-    [AC_HELP_STRING([--enable-test],
-                   [Build test programs (default=no)])],
-    [enable_test=$enableval],
-    [enable_test=yes])
-AM_CONDITIONAL(TEST_ENABLE, test x$enable_test = xyes)
-
-##########################
 # Enable support for valgrind
 #
 AC_ARG_WITH([valgrind],
@@ -74,7 +63,6 @@ else
         CPPFLAGS="$CPPFLAGS -I$with_valgrind/include"
     fi
 fi
-
 
 dnl Checks for libraries
 AC_CHECK_LIB([ibverbs], [ibv_get_device_list], [], [AC_MSG_ERROR([libibverbs not found])])
@@ -96,6 +84,8 @@ AC_CHECK_HEADER(valgrind/memcheck.h,
         AC_MSG_ERROR([Valgrind memcheck support requested, but <valgrind/memcheck.h> not found.])
     fi])
 fi
+
+AC_CHECK_HEADERS([infiniband/verbs_exp.h])
 
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST

@@ -29,6 +29,10 @@
 
 #ifndef _IBVERBS_COMMON_H_
 #define _IBVERBS_COMMON_H_
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <stdio.h>
 #include <errno.h>
 #include <stdint.h>
@@ -110,6 +114,15 @@ extern char *gtest_dev_name;
 	do {                                                           \
 		if (gtest_debug_mask & GTEST_LOG_TRACE)                 \
 			printf("\033[0;3%sm" "[    TRACE ] " fmt "\033[m", "7", ##__VA_ARGS__);    \
+	} while(0)
+
+
+#define CHECK_TEST_OR_SKIP(FEATURE_NAME) \
+	do{\
+		  if(this->skip_this_test) {\
+			       std::cout << "[  SKIPPED ] Feature " << #FEATURE_NAME << " is not supported" << std::endl;\
+			       return;\
+			    }\
 	} while(0)
 
 
