@@ -92,4 +92,44 @@ protected:
 	// Set it to be TRUE, if the test should be skipped
 	bool skip_this_test;
 };
+
+#pragma pack( push, 1 )
+struct test_entry {
+	int lid;		/* LID of the IB port */
+	int qpn;		/* QP number */
+	int psn;
+	uint32_t rkey;		/* Remote key */
+	uintptr_t vaddr;	/* Buffer address */
+
+	union ibv_gid gid;	/* GID of the IB port */
+};
+#pragma pack( pop )
+
+struct test_context {
+	struct ibv_context     *context;	/* Device context */
+	struct ibv_pd          *pd;		/* Protection domain (PD) */
+	struct ibv_mr          *mr;		/* Memory region (MR) */
+	struct ibv_cq          *scq;		/* Send completion queue (sCQ) */
+	struct ibv_cq          *rcq;		/* Receive completion queue (rCQ) */
+	struct ibv_qp          *qp;		/* Queue pair (QP) */
+	struct ibv_cq          *mcq;		/* Managed completion queue (mCQ) */
+	struct ibv_qp          *mqp;		/* Managed queue pair (mQP) */
+	struct ibv_ah          *ah;		/* Address handle (AH) */
+	struct ibv_wc          *wc;             /* Work completion array */
+	void                   *net_buf;        /* Memory buffer pointer, used for RDMA and send */
+	void                   *buf;            /* Local memory buffer */
+	int                     size;
+	int                     cq_tx_depth;
+	int                     cq_rx_depth;
+	int                     qp_tx_depth;
+	int                     qp_rx_depth;
+	int                     port;
+	struct test_entry	my_info;	/* Local information */
+	struct test_entry	peer_info;	/* Remote information */
+
+	void                   *last_result;
+	const char             *str_input;
+	int                     pending;
+};
+
 #endif //_IBVERBS_VERBS_TEST_
