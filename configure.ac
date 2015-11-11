@@ -87,6 +87,14 @@ fi
 
 AC_CHECK_HEADERS([infiniband/verbs_exp.h])
 
+AC_CHECK_HEADER([infiniband/peer_ops.h], [
+peerdirect=1
+AC_CHECK_DECL([ibv_exp_peer_commit_qp], [
+AC_DEFINE(PEER_DIRECT_EXP,1,[Experimetal Peer-Direct API])], [], [
+#include<infiniband/peer_ops.h>
+])])
+AM_CONDITIONAL([PEER_DIRECT], [test x$peerdirect = x1])
+
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
 
