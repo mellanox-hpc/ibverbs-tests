@@ -29,7 +29,7 @@
 
 #include "cc_verbs_test.h"
 
-class tc_verbs_query_device : public cc_verbs_test {};
+class tc_verbs_query_device : public cc_base_verbs_test {};
 
 /* verbs_query_device: [TI.1]
  * Check if ibv_query_device() returns information about Cross-Channel support
