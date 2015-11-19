@@ -48,5 +48,9 @@ ibv_test_SOURCES += \
 			 tests/general/init.cc \
 			 tests/cross-channel/query_device_sync.cc
 
+if PEER_DIRECT
+ibv_test_SOURCES +=      tests/peer-direct/loopback.cc
+endif
+
 EXTRA_DIST = src/gtest-all.cc
 EXTRA_DIST += autogen.sh
