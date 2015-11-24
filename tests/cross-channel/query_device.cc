@@ -29,7 +29,7 @@
 
 #include "cc_verbs_test.h"
 
-class tc_verbs_query_device : public cc_verbs_test {};
+class tc_verbs_query_device : public cc_base_verbs_test {};
 
 /* verbs_query_device: [TI.1]
  * Check if ibv_query_device() returns information about Cross-Channel support
@@ -44,12 +44,12 @@ TEST_F(tc_verbs_query_device, ti_1) {
 	VERBS_INFO("           : %s\n", ibv_dev->ibdev_path);
 	VERBS_INFO("============================================\n");
 
-#ifndef HAVE_INFINIBAND_VERBS_EXP_H
+#ifdef HAVE_CROSS_CHANNEL
 	VERBS_INFO("device_attr.device_cap_flags: 0x%x\n",
 			device_attr.orig_attr.device_cap_flags);
 	VERBS_INFO("CROSS_CHANNEL               : %s \n",
 			(device_attr.orig_attr.device_cap_flags & IBV_DEVICE_CROSS_CHANNEL ?
 					"ON" : "OFF"));
 	ASSERT_TRUE(device_attr.orig_attr.device_cap_flags & IBV_DEVICE_CROSS_CHANNEL);
-#endif //HAVE_INFINIBAND_VERBS_EXP_H
+#endif //HAVE_CROSS_CHANNEL
 }
