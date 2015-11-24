@@ -98,6 +98,14 @@ AM_CONDITIONAL([PEER_DIRECT], [test x$peerdirect = x1])
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
 
+AC_CHECK_DECL([IBV_DEVICE_CROSS_CHANNEL], [cross_channel=1],
+		[cross_channel=0],
+		[[#include <infiniband/verbs.h>]])
+
+if test x$cross_channel = x1; then
+	AC_DEFINE(HAVE_CROSS_CHANNEL, 1, [Cross-channel is supported])
+fi
+
 if test $(basename ${CC}x) = mpiccx; then
     AC_DEFINE(HAVE_MPICC, 1, [Use mpirun as a launcher])
 fi
