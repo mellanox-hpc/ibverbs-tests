@@ -189,7 +189,7 @@ protected:
 			attr.ah_attr.dlid          = 0;
 			attr.ah_attr.sl            = 0;
 			attr.ah_attr.src_path_bits = 0;
-			attr.ah_attr.port_num      = 0;
+			attr.ah_attr.port_num      = MQP_PORT;
 
 			rc = ibv_modify_qp(ctx->mqp, &attr,
 					IBV_QP_STATE              |
