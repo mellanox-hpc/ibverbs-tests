@@ -231,32 +231,31 @@ protected:
 		ctx->qp_rx_depth = qp_rx_depth;
 		ctx->cq_tx_depth = cq_tx_depth;
 		ctx->cq_rx_depth = cq_rx_depth;
-
 		/*
 		 * A CQ contains completed work requests (WR). Each WR will generate a completion
 		 * queue event (CQE) that is placed on the CQ. The CQE will specify if the WR was
 		 * completed successfully or not.
 		 */
 		{
-			struct ibv_create_cq_attr_ex attr;
+			struct ibv_create_cq_attr_ex attr = {0};
 			if (cq_tx_flag)	{
 				attr.comp_mask	= IBV_CREATE_CQ_ATTR_FLAGS;
 				attr.flags	= cq_tx_flag;
-				attr.cqe = ctx->cq_tx_depth;
-				ctx->scq = ibv_create_cq_ex(ctx->context, &attr);
-				ASSERT_TRUE(ctx->scq != NULL);
 			}
+			attr.cqe = ctx->cq_tx_depth;
+			ctx->scq = ibv_create_cq_ex(ctx->context, &attr);
+			ASSERT_TRUE(ctx->scq != NULL);
 		}
 
 		{
-			struct ibv_create_cq_attr_ex attr;
+			struct ibv_create_cq_attr_ex attr = {0};
 			if (cq_rx_flag)	{
 				attr.comp_mask	= IBV_CREATE_CQ_ATTR_FLAGS;
 				attr.flags	= cq_rx_flag;
-				attr.cqe = ctx->cq_rx_depth;
-				ctx->rcq = ibv_create_cq_ex(ctx->context, &attr);
-				ASSERT_TRUE(ctx->rcq != NULL);
 			}
+			attr.cqe = ctx->cq_rx_depth;
+			ctx->rcq = ibv_create_cq_ex(ctx->context, &attr);
+			ASSERT_TRUE(ctx->rcq != NULL);
 		}
 
 		ctx->wc = (struct ibv_wc*)malloc((ctx->cq_tx_depth + ctx->cq_rx_depth) * sizeof(struct ibv_wc));
