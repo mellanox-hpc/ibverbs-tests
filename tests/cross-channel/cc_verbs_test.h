@@ -242,10 +242,10 @@ protected:
 			if (cq_tx_flag)	{
 				attr.comp_mask	= IBV_CREATE_CQ_ATTR_FLAGS;
 				attr.flags	= cq_tx_flag;
+				attr.cqe = ctx->cq_tx_depth;
+				ctx->scq = ibv_create_cq_ex(ctx->context, &attr);
+				ASSERT_TRUE(ctx->scq != NULL);
 			}
-			attr.cqe = ctx->cq_tx_depth;
-			ctx->scq = ibv_create_cq_ex(ctx->context, &attr);
-			ASSERT_TRUE(ctx->scq != NULL);
 		}
 
 		{
@@ -253,10 +253,10 @@ protected:
 			if (cq_rx_flag)	{
 				attr.comp_mask	= IBV_CREATE_CQ_ATTR_FLAGS;
 				attr.flags	= cq_rx_flag;
+				attr.cqe = ctx->cq_rx_depth;
+				ctx->rcq = ibv_create_cq_ex(ctx->context, &attr);
+				ASSERT_TRUE(ctx->rcq != NULL);
 			}
-			attr.cqe = ctx->cq_rx_depth;
-			ctx->rcq = ibv_create_cq_ex(ctx->context, &attr);
-			ASSERT_TRUE(ctx->rcq != NULL);
 		}
 
 		ctx->wc = (struct ibv_wc*)malloc((ctx->cq_tx_depth + ctx->cq_rx_depth) * sizeof(struct ibv_wc));
