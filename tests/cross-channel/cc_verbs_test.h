@@ -189,7 +189,7 @@ protected:
 			attr.ah_attr.dlid          = 0;
 			attr.ah_attr.sl            = 0;
 			attr.ah_attr.src_path_bits = 0;
-			attr.ah_attr.port_num      = 0;
+			attr.ah_attr.port_num      = MQP_PORT;
 
 			rc = ibv_modify_qp(ctx->mqp, &attr,
 					IBV_QP_STATE              |
@@ -231,14 +231,13 @@ protected:
 		ctx->qp_rx_depth = qp_rx_depth;
 		ctx->cq_tx_depth = cq_tx_depth;
 		ctx->cq_rx_depth = cq_rx_depth;
-
 		/*
 		 * A CQ contains completed work requests (WR). Each WR will generate a completion
 		 * queue event (CQE) that is placed on the CQ. The CQE will specify if the WR was
 		 * completed successfully or not.
 		 */
 		{
-			struct ibv_create_cq_attr_ex attr;
+			struct ibv_create_cq_attr_ex attr = {0};
 			if (cq_tx_flag)	{
 				attr.comp_mask	= IBV_CREATE_CQ_ATTR_FLAGS;
 				attr.flags	= cq_tx_flag;
@@ -249,7 +248,7 @@ protected:
 		}
 
 		{
-			struct ibv_create_cq_attr_ex attr;
+			struct ibv_create_cq_attr_ex attr = {0};
 			if (cq_rx_flag)	{
 				attr.comp_mask	= IBV_CREATE_CQ_ATTR_FLAGS;
 				attr.flags	= cq_rx_flag;
