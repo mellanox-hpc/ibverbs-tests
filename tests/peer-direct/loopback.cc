@@ -107,7 +107,7 @@
 #define SET(x,y) do { \
 		VERBS_TRACE("%d.%d: doing " #y "\n", __LINE__, i); \
 		x=y; \
-		ASSERT_TRUE(x) << #y; \
+		ASSERT_TRUE(x) << #y << " errno: " << errno; \
 	} while(0)
 
 class peerdirect_base_test : public testing::Test {
@@ -274,7 +274,6 @@ protected:
 		struct ibv_peer_commit commit_ops;
 		commit_ops.storage = op_buff1;
 		commit_ops.entries = MAX_WR;
-		commit_ops.peer_queue_token = (uintptr_t)queue_pair[0];
 		struct ibv_peer_peek peek_ops;
 		peek_ops.storage = op_buff2;
 		peek_ops.entries = MAX_WR;
@@ -293,7 +292,7 @@ protected:
 		DO(ibv_peer_peek_cq(queue[i], &peek_ops));
 		ASSERT_NO_FATAL_FAILURE(ops2wr(commit_ops.storage, commit_ops.entries, peer, &ctx->ctrl.f->commit, ctx->wr1, ctx->sge1));
 		ASSERT_NO_FATAL_FAILURE(ops2wr(peek_ops.storage, peek_ops.entries, peer, &ctx->ctrl.f->peek, ctx->wr2, ctx->sge2));
-		ctx->rollback_id = commit_ops.rollback_abort_identifier;
+		ctx->rollback_id = commit_ops.rollback_id;
 		ctx->peek_op_type = peek_ops.storage->type;
 		ctx->peek_op_data = peek_ops.storage->wr.dword_va.data;
 		ctx->peek_id = peek_ops.peek_id;
@@ -328,7 +327,7 @@ protected:
 
 	void peer_fail(int i, int flags, xmit_peer_ctx* ctx) {
 		struct ibv_rollback_ctx rb_ctx;
-		rb_ctx.rollback_abort_identifier = ctx->rollback_id;
+		rb_ctx.rollback_id = ctx->rollback_id;
 		rb_ctx.flags = flags;
 		DO(ibv_rollback_qp(queue_pair[i], &rb_ctx));
 	}
@@ -370,6 +369,7 @@ protected:
 	};
 
 	std::list<peer_mr *> mr_list;
+	std::set<struct ibv_peer_mr *> wq_set;
 
 	static inline int qp2dev(int i) {
 	       return i/2;
@@ -402,16 +402,24 @@ protected:
 		delete reg_h;
 	}
 
-	static void* work_queue_alloc(size_t sz, enum ibv_peer_direction expected_direction, uint64_t peer_id) {
-		void* buf = mmap(NULL, sz, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
-		if (buf == MAP_FAILED)
-			return 0;
-
-		return buf;
+	static int work_queue_alloc(struct ibv_peer_mr *pmr) {
+		peer_ctx *ctx = (peer_ctx *)pmr->peer_id;
+		pmr->addr = mmap(NULL, pmr->length, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+		VERBS_TRACE("work_queue_alloc %p[%lx]\n", pmr->addr, pmr->length);
+		if (pmr->addr == MAP_FAILED) {
+			ctx->t.fatality = true;
+			return -1;
+		}
+		ctx->t.wq_set.insert(pmr);
+		return 0;
 	}
 
-	static void work_queue_release(void *queue, size_t sz, uint64_t peer_id) {
-		munmap(queue, sz);
+	static void work_queue_release(struct ibv_peer_mr *pmr) {
+		peer_ctx *ctx = (peer_ctx *)pmr->peer_id;
+		VERBS_TRACE("work_queue_release %p[%lx]\n", pmr->addr, pmr->length);
+		munmap(pmr->addr, pmr->length);
+		if (ctx->t.wq_set.erase(pmr) != 1) 
+			ctx->t.fatality = true;
 	}
 
 	void init_pd_qp(int i, int peer) {		
@@ -580,6 +588,7 @@ protected:
 				ASSERT_FALSE(ibv_destroy_cq(queue[i]));
 			queue[i] = NULL;
 		}
+		ASSERT_EQ(wq_set.size(), 0);
 	}
 };
 
