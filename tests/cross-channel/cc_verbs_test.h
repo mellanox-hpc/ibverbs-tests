@@ -40,6 +40,15 @@ enum {
 #define TEST_GET_WRID(opcode)       ((opcode) & TEST_BASE_WRID)
 #define TEST_GET_TYPE(opcode)       ((opcode) & (~TEST_BASE_WRID))
 
+static INLINE const char* wr_id2str(uint64_t wr_id)
+{
+	switch (TEST_GET_TYPE(wr_id)) {
+		case TEST_RECV_WRID:    return "RECV";
+		case TEST_SEND_WRID:    return "SEND";
+		default:        	return "N/A";
+	}
+}
+
 #define QP_PORT			1
 #define MQP_PORT		1
 #define DEFAULT_DEPTH		0x1F
@@ -470,9 +479,6 @@ protected:
 			wr.wr.rdma.remote_addr = ctx->peer_info.vaddr;
 			wr.wr.rdma.rkey = ctx->peer_info.rkey;
 			break;
-#if 0
-		// This code will be opened after ibv_post_task()
-		// will be finalized.
 		case IBV_WR_RECV_ENABLE:
 		case IBV_WR_SEND_ENABLE:
 			wr.task.wqe_enable.qp = ctx->qp;
@@ -482,13 +488,11 @@ protected:
 			break;
 
 		case IBV_WR_CQE_WAIT:
-
 			wr.task.cqe_wait.cq = ctx->scq;
 			wr.task.cqe_wait.cq_count = 1;
 
 			wr.send_flags |= IBV_SEND_WAIT_EN_LAST;
 			break;
-#endif
 		case IBV_WR_SEND:
 			break;
 
@@ -499,7 +503,6 @@ protected:
 		}
 
 		rc = ibv_post_send(ctx->qp, &wr, &bad_wr);
-
 		return rc;
 	}
 
