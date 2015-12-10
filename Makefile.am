@@ -47,7 +47,8 @@ ibv_test_SOURCES = \
 ibv_test_SOURCES += \
 			 tests/general/init.cc \
 			 tests/cross-channel/query_device.cc \
-			 tests/cross-channel/create_cq.cc
+			 tests/cross-channel/create_cq.cc \
+			 tests/cross-channel/post_send_en.cc
 
 if PEER_DIRECT
 ibv_test_SOURCES +=      tests/peer-direct/loopback.cc
