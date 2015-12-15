@@ -49,6 +49,7 @@ ibv_test_SOURCES += \
 			 tests/cross-channel/query_device.cc \
 			 tests/cross-channel/create_cq.cc \
 			 tests/cross-channel/post_send_en.cc \
+			 tests/cross-channel/post_recv_en.cc \
 			 tests/cross-channel/post_send_wait.cc \
 			 tests/cross-channel/post_task.cc
 
