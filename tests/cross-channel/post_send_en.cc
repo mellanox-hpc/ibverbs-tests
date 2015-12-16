@@ -423,13 +423,11 @@ TEST_F(tc_verbs_post_send_en, ti_6) {
 					wr_en.task.wqe_enable.wqe_count = 1;
 
 					rc = ibv_post_send(ctx->mqp, &wr_en, NULL);
-					EXPECT_EQ(EOK, rc);
-					ASSERT_EQ(EOK, rc);
 				}
-				else {
+				else
 					rc = __post_write(ctx, TEST_SET_WRID(TEST_SEND_WRID, wrid), IBV_WR_SEND);
-					ASSERT_EQ(EOK, rc);
-				}
+
+				ASSERT_EQ(EOK, rc);
 				++wrid;
 			}
 
@@ -591,7 +589,6 @@ TEST_F(tc_verbs_post_send_en, ti_7) {
 					wr_en.task.wqe_enable.wqe_count = 0;
 
 					rc = ibv_post_send(ctx->mqp, &wr_en, NULL);
-					EXPECT_EQ(EOK, rc);
 					ASSERT_EQ(EOK, rc);
 				}
 				++wrid;
@@ -760,7 +757,6 @@ TEST_F(tc_verbs_post_send_en, ti_8) {
 					wr_en.task.wqe_enable.wqe_count = 3;
 
 					rc = ibv_post_send(ctx->mqp, &wr_en, NULL);
-					EXPECT_EQ(EOK, rc);
 					ASSERT_EQ(EOK, rc);
 				}
 				++wrid;
@@ -951,7 +947,6 @@ TEST_F(tc_verbs_post_send_en, ti_9) {
 					wr_en[2].task.wqe_enable.wqe_count = 2;
 
 					rc = ibv_post_send(ctx->mqp, wr_en, NULL);
-					EXPECT_EQ(EOK, rc);
 					ASSERT_EQ(EOK, rc);
 				}
 				++wrid;
@@ -1148,7 +1143,6 @@ TEST_F(tc_verbs_post_send_en, ti_10) {
 					wr_en[2].task.wqe_enable.wqe_count = 2;
 
 					rc = ibv_post_send(ctx->mqp, wr_en, NULL);
-					EXPECT_EQ(EOK, rc);
 					ASSERT_EQ(EOK, rc);
 				}
 				++wrid;
