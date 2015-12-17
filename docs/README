@@ -1,8 +1,10 @@
 ## How to build tests
 
-./autogen.sh
-./configure
-make
+% git clone https://github.com/mellanox-hpc/ibverbs-tests
+% cd ibverbs-tests
+% ./autogen.sh
+%./configure
+% make
 
 ## How to run CD tests:
 
@@ -11,7 +13,7 @@ for dev in $(ibstat -l); do
         GTEST_SHUFFLE=1 IBV_TEST_DEV=${hca} ibv_test;
 done
 
-## How to run CD tests w/ valgrind
+## How to run IB Verbs tests w/ valgrind
 
 valgrind --tool=memcheck --leak-check=full --track-origins=yes ibv_test
 
@@ -22,7 +24,7 @@ valgrind --tool=memcheck --leak-check=full --track-origins=yes ibv_test
 * src/              - soruce code of the tests engine
 * tests/            - all tests should go there
 * tests/general/    - common tests which are not related
-                          to specific feature
+                      to specific feature
 * tests/cross-channel/      - cross-channel specific tests
 * tests/peer-direct/        - peer-direct specific tests
 * tests/FEATURE/	    - new FEATURE tests should be put here
