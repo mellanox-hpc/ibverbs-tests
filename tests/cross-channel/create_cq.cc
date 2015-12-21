@@ -45,7 +45,6 @@ TEST_F(tc_verbs_create_cq, ti_1) {
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 	int flags;
-	int poll_result;
 	int64_t	 wrid = 0;
 
 	__init_test( 0, 0x1F, 0x1F,
@@ -70,48 +69,34 @@ TEST_F(tc_verbs_create_cq, ti_1) {
 	ASSERT_EQ(EOK, rc);
 	rc = __post_write(ctx, 66, IBV_WR_SEND);
 	ASSERT_EQ(EOK, rc);
-	sleep(2);
-	poll_result = ibv_poll_cq(ctx->scq, 2, ctx->wc);
-	EXPECT_EQ(2, poll_result);
+	__poll_cq(ctx->scq, 2, ctx->wc, 2);
 	EXPECT_EQ(IBV_WC_SUCCESS, ctx->wc[0].status);
 	EXPECT_EQ((uint64_t)(77), ctx->wc[0].wr_id);
 	EXPECT_EQ(IBV_WC_SUCCESS, ctx->wc[1].status);
 	EXPECT_EQ((uint64_t)(66), ctx->wc[1].wr_id);
-	poll_result = ibv_poll_cq(ctx->rcq, 2, ctx->wc);
-	EXPECT_EQ(2, poll_result);
+
+	__poll_cq(ctx->rcq, 2, ctx->wc, 2);
 
 	/*
 	 * Check that it is impossible to post and poll number of WRs that
-	 * greater than Maximum number of CQE in SCQ
+	 * greater than maximum number of CQE in SCQ
 	 */
-	{
-		unsigned long start_time_msec;
-		unsigned long cur_time_msec;
-		struct timeval cur_time;
 
-		/* Post number of WRs that exceeds maximum of CQE in CQ */
-		gettimeofday(&cur_time, NULL);
-		start_time_msec = (cur_time.tv_sec * 1000) + (cur_time.tv_usec / 1000);
-		do {
-			rc = __post_write(ctx, wrid, IBV_WR_SEND);
-			ASSERT_EQ(EOK, rc);
-			++wrid;
-
-			gettimeofday(&cur_time, NULL);
-			cur_time_msec = (cur_time.tv_sec * 1000)
-					+ (cur_time.tv_usec / 1000);
-		} while ((wrid < (ctx->cq_tx_depth + 2))
-				&& ((cur_time_msec - start_time_msec)
-						< MAX_POLL_CQ_TIMEOUT));
-	}
+	/* Post number of WRs that exceeds maximum of CQE in CQ */
+	do {
+		rc = __post_write(ctx, wrid, IBV_WR_SEND);
+		ASSERT_EQ(EOK, rc);
+		++wrid;
+	} while (wrid < (ctx->cq_tx_depth + 2));
+	ASSERT_EQ(wrid, ctx->cq_tx_depth + 2);
 
 	sleep(2);
-	poll_result = ibv_poll_cq(ctx->scq, ctx->cq_tx_depth + 2, ctx->wc);
-	EXPECT_EQ(wrid, poll_result + 1);
-	EXPECT_EQ(IBV_WC_SUCCESS, ctx->wc[poll_result - 1].status);
-	EXPECT_EQ((uint64_t)(poll_result - 1), ctx->wc[poll_result - 1].wr_id);
-	poll_result = ibv_poll_cq(ctx->rcq, ctx->cq_rx_depth + 2, ctx->wc);
-	EXPECT_NE(wrid, poll_result + 1);
+
+	__poll_cq(ctx->scq, ctx->cq_tx_depth + 2, ctx->wc, wrid - 1);
+	EXPECT_EQ(IBV_WC_SUCCESS, ctx->wc[wrid - 2].status);
+	EXPECT_EQ((uint64_t)(wrid - 2), ctx->wc[wrid - 2].wr_id);
+
+	__poll_cq(ctx->rcq, ctx->cq_rx_depth + 2, ctx->wc, wrid - 1);
 
 	/* Check result */
 	{
@@ -156,7 +141,6 @@ TEST_F(tc_verbs_create_cq, ti_1) {
 	}
 #endif //HAVE_CROSS_CHANNEL
 }
-
 /* tc_verbs_create_cq: [TI.2]
  * This test sets CQ TX to ignore overrun
  */
@@ -165,7 +149,6 @@ TEST_F(tc_verbs_create_cq, ti_2) {
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 	int flags;
-	int poll_result;
 	int64_t	 wrid = 0;
 
 	__init_test( 0, 0x1F, 0x1F,
@@ -190,47 +173,30 @@ TEST_F(tc_verbs_create_cq, ti_2) {
 	ASSERT_EQ(EOK, rc);
 	rc = __post_write(ctx, 66, IBV_WR_SEND);
 	ASSERT_EQ(EOK, rc);
-	sleep(2);
-	poll_result = ibv_poll_cq(ctx->scq, 2, ctx->wc);
-	EXPECT_EQ(2, poll_result);
+	__poll_cq(ctx->scq, 2, ctx->wc, 2);
 	EXPECT_EQ(IBV_WC_SUCCESS, ctx->wc[0].status);
 	EXPECT_EQ((uint64_t)(77), ctx->wc[0].wr_id);
 	EXPECT_EQ(IBV_WC_SUCCESS, ctx->wc[1].status);
 	EXPECT_EQ((uint64_t)(66), ctx->wc[1].wr_id);
-	poll_result = ibv_poll_cq(ctx->rcq, 2, ctx->wc);
-	EXPECT_EQ(2, poll_result);
+	__poll_cq(ctx->rcq, 2, ctx->wc, 2);
 
 	/*
 	 * Check that it is possible to post and poll number of WRs that
 	 * greater than Maximum number of CQE in SCQ
 	 */
-	{
-		unsigned long start_time_msec;
-		unsigned long cur_time_msec;
-		struct timeval cur_time;
+	/* Post number of WRs that exceeds maximum of CQE in CQ */
+	do {
+		rc = __post_write(ctx, wrid, IBV_WR_SEND);
+		ASSERT_EQ(EOK, rc);
+		++wrid;
+	} while (wrid < (ctx->cq_tx_depth + 2));
 
-		/* Post number of WRs that exceeds maximum of CQE in CQ */
-		gettimeofday(&cur_time, NULL);
-		start_time_msec = (cur_time.tv_sec * 1000) + (cur_time.tv_usec / 1000);
-		do {
-			rc = __post_write(ctx, wrid, IBV_WR_SEND);
-			ASSERT_EQ(EOK, rc);
-			++wrid;
-
-			gettimeofday(&cur_time, NULL);
-			cur_time_msec = (cur_time.tv_sec * 1000)
-					+ (cur_time.tv_usec / 1000);
-		} while ((wrid < (ctx->cq_tx_depth + 2))
-				&& ((cur_time_msec - start_time_msec)
-						< MAX_POLL_CQ_TIMEOUT));
-	}
+	EXPECT_EQ(ctx->cq_tx_depth + 2, wrid);
 
 	sleep(2);
-	poll_result = ibv_poll_cq(ctx->scq, ctx->cq_tx_depth + 2, ctx->wc);
-	EXPECT_EQ(ctx->cq_tx_depth + 2, wrid);
-	EXPECT_EQ(0, poll_result);
-	poll_result = ibv_poll_cq(ctx->rcq, ctx->cq_rx_depth + 2, ctx->wc);
-	EXPECT_EQ(ctx->cq_tx_depth + 2, poll_result);
+
+	__poll_cq(ctx->scq, ctx->cq_tx_depth + 2, ctx->wc, 0);
+	__poll_cq(ctx->rcq, ctx->cq_rx_depth + 2, ctx->wc, ctx->cq_tx_depth + 2);
 
 	/* Check if ERROR is raised */
 	{
@@ -258,11 +224,9 @@ TEST_F(tc_verbs_create_cq, ti_2) {
  */
 TEST_F(tc_verbs_create_cq, ti_3) {
 	CHECK_TEST_OR_SKIP(Cross-Channel);
-
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 	int flags;
-	int poll_result;
 	int64_t	 wrid = 0;
 
 	__init_test( 0, 0x1F, 0x1F,
@@ -287,47 +251,30 @@ TEST_F(tc_verbs_create_cq, ti_3) {
 	ASSERT_EQ(EOK, rc);
 	rc = __post_write(ctx, 66, IBV_WR_SEND);
 	ASSERT_EQ(EOK, rc);
+
 	sleep(2);
-	poll_result = ibv_poll_cq(ctx->scq, 2, ctx->wc);
-	EXPECT_EQ(2, poll_result);
+
+	__poll_cq(ctx->scq, 2, ctx->wc, 2);
 	EXPECT_EQ(IBV_WC_SUCCESS, ctx->wc[0].status);
 	EXPECT_EQ((uint64_t)(77), ctx->wc[0].wr_id);
 	EXPECT_EQ(IBV_WC_SUCCESS, ctx->wc[1].status);
 	EXPECT_EQ((uint64_t)(66), ctx->wc[1].wr_id);
-	poll_result = ibv_poll_cq(ctx->rcq, 2, ctx->wc);
-	EXPECT_EQ(2, poll_result);
+	__poll_cq(ctx->rcq, 2, ctx->wc, 2);
 
 	/*
 	 * Check that it is possible to post and poll number of WRs that
 	 * greater than Maximum number of CQE in SCQ
 	 */
-	{
-		unsigned long start_time_msec;
-		unsigned long cur_time_msec;
-		struct timeval cur_time;
+	/* Post number of WRs that exceeds maximum of CQE in CQ */
+	do {
+		rc = __post_write(ctx, wrid, IBV_WR_SEND);
+		ASSERT_EQ(EOK, rc);
+		++wrid;
+	} while (wrid < (ctx->cq_rx_depth + 2));
 
-		/* Post number of WRs that exceeds maximum of CQE in CQ */
-		gettimeofday(&cur_time, NULL);
-		start_time_msec = (cur_time.tv_sec * 1000) + (cur_time.tv_usec / 1000);
-		do {
-			rc = __post_write(ctx, wrid, IBV_WR_SEND);
-			ASSERT_EQ(EOK, rc);
-			++wrid;
-
-			gettimeofday(&cur_time, NULL);
-			cur_time_msec = (cur_time.tv_sec * 1000)
-					+ (cur_time.tv_usec / 1000);
-		} while ((wrid < (ctx->cq_rx_depth + 2))
-				&& ((cur_time_msec - start_time_msec)
-						< MAX_POLL_CQ_TIMEOUT));
-	}
-
-	sleep(2);
-	poll_result = ibv_poll_cq(ctx->scq, ctx->cq_tx_depth + 2, ctx->wc);
 	EXPECT_EQ(ctx->cq_rx_depth + 2, wrid);
-	EXPECT_EQ(ctx->cq_rx_depth + 2, poll_result);
-	poll_result = ibv_poll_cq(ctx->rcq, ctx->cq_rx_depth + 2, ctx->wc);
-	EXPECT_EQ(0, poll_result);
+	__poll_cq(ctx->scq, ctx->cq_tx_depth + 2, ctx->wc, ctx->cq_rx_depth + 2);
+	__poll_cq(ctx->rcq, ctx->cq_rx_depth + 2, ctx->wc, 0);
 
 	/* Check if ERROR is raised */
 	{

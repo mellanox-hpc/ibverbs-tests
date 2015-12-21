@@ -535,6 +535,32 @@ protected:
 
 		return i;
 	}
+
+	void __poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc,
+			int expected_poll_cq_count)
+	{
+		int poll_result;
+		int poll_cq_count = 0;
+
+		unsigned long start_time_msec;
+		unsigned long cur_time_msec;
+		struct timeval cur_time;
+
+		gettimeofday(&cur_time, NULL);
+		start_time_msec = (cur_time.tv_sec * 1000) + (cur_time.tv_usec / 1000);
+		do {
+			poll_result = ibv_poll_cq(cq, 0x10, wc);
+			ASSERT_TRUE(poll_result >= 0 );
+			poll_cq_count += poll_result;
+
+			gettimeofday(&cur_time, NULL);
+			cur_time_msec = (cur_time.tv_sec * 1000)
+						+ (cur_time.tv_usec / 1000);
+		} while ((poll_cq_count < expected_poll_cq_count)
+				&& ((cur_time_msec - start_time_msec)
+						< MAX_POLL_CQ_TIMEOUT));
+		ASSERT_EQ(expected_poll_cq_count, poll_cq_count);
+	}
 #endif //HAVE_CROSS_CHANNEL
 };
 #endif //_IBVERBS_CC_VERBS_TEST_
