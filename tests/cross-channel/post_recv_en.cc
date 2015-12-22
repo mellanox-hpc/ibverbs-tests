@@ -157,8 +157,8 @@ TEST_F(tc_verbs_post_recv_en, ti_4) {
 					wr_en.send_flags = IBV_SEND_WAIT_EN_LAST;
 					wr_en.imm_data = 0;
 
-					wr_en.task.wqe_enable.qp   = ctx->qp;
-					wr_en.task.wqe_enable.wqe_count = 1;
+					wr_en.wr.wqe_enable.qp   = ctx->qp;
+					wr_en.wr.wqe_enable.wqe_count = 1;
 
 					rc = ibv_post_send(ctx->mqp, &wr_en, NULL);
 					EXPECT_EQ(EOK, rc);
@@ -321,8 +321,8 @@ TEST_F(tc_verbs_post_recv_en, ti_5) {
 					wr_en.send_flags = IBV_SEND_SIGNALED | IBV_SEND_WAIT_EN_LAST;
 					wr_en.imm_data = 0;
 
-					wr_en.task.wqe_enable.qp   = ctx->qp;
-					wr_en.task.wqe_enable.wqe_count = 0;
+					wr_en.wr.wqe_enable.qp   = ctx->qp;
+					wr_en.wr.wqe_enable.wqe_count = 0;
 
 					rc = ibv_post_send(ctx->mqp, &wr_en, NULL);
 					EXPECT_EQ(EOK, rc);
@@ -484,8 +484,8 @@ TEST_F(tc_verbs_post_recv_en, ti_6) {
 					wr_en.send_flags = IBV_SEND_WAIT_EN_LAST;
 					wr_en.imm_data = 0;
 
-					wr_en.task.wqe_enable.qp   = ctx->qp;
-					wr_en.task.wqe_enable.wqe_count = 3;
+					wr_en.wr.wqe_enable.qp   = ctx->qp;
+					wr_en.wr.wqe_enable.wqe_count = 3;
 
 					rc = ibv_post_send(ctx->mqp, &wr_en, NULL);
 					EXPECT_EQ(EOK, rc);
@@ -665,12 +665,12 @@ TEST_F(tc_verbs_post_recv_en, ti_7) {
 					wr_en[2].send_flags = IBV_SEND_SIGNALED | IBV_SEND_WAIT_EN_LAST;
 					wr_en[2].imm_data = 0;
 
-					wr_en[0].task.wqe_enable.qp   = ctx->qp;
-					wr_en[0].task.wqe_enable.wqe_count = 2;
-					wr_en[1].task.wqe_enable.qp   = ctx->qp;
-					wr_en[1].task.wqe_enable.wqe_count = 2;
-					wr_en[2].task.wqe_enable.qp   = ctx->qp;
-					wr_en[2].task.wqe_enable.wqe_count = 2;
+					wr_en[0].wr.wqe_enable.qp   = ctx->qp;
+					wr_en[0].wr.wqe_enable.wqe_count = 2;
+					wr_en[1].wr.wqe_enable.qp   = ctx->qp;
+					wr_en[1].wr.wqe_enable.wqe_count = 2;
+					wr_en[2].wr.wqe_enable.qp   = ctx->qp;
+					wr_en[2].wr.wqe_enable.wqe_count = 2;
 
 					rc = ibv_post_send(ctx->mqp, wr_en, NULL);
 					EXPECT_EQ(EOK, rc);
@@ -857,12 +857,12 @@ TEST_F(tc_verbs_post_recv_en, ti_8) {
 					wr_en[2].imm_data = 0;
 
 
-					wr_en[0].task.wqe_enable.qp   = ctx->qp;
-					wr_en[0].task.wqe_enable.wqe_count = 2;
-					wr_en[1].task.wqe_enable.qp   = ctx->qp;
-					wr_en[1].task.wqe_enable.wqe_count = 2;
-					wr_en[2].task.wqe_enable.qp   = ctx->qp;
-					wr_en[2].task.wqe_enable.wqe_count = 2;
+					wr_en[0].wr.wqe_enable.qp   = ctx->qp;
+					wr_en[0].wr.wqe_enable.wqe_count = 2;
+					wr_en[1].wr.wqe_enable.qp   = ctx->qp;
+					wr_en[1].wr.wqe_enable.wqe_count = 2;
+					wr_en[2].wr.wqe_enable.qp   = ctx->qp;
+					wr_en[2].wr.wqe_enable.wqe_count = 2;
 
 					rc = ibv_post_send(ctx->mqp, wr_en, NULL);
 					EXPECT_EQ(EOK, rc);

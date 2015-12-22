@@ -72,8 +72,8 @@ TEST_F(tc_verbs_post_send_wait, ti_2) {
 	wr.send_flags = IBV_SEND_SIGNALED | IBV_SEND_WAIT_EN_LAST;
 	wr.imm_data = 0;
 
-	wr.task.cqe_wait.cq = ctx->rcq;
-	wr.task.cqe_wait.cq_count = 1;
+	wr.wr.cqe_wait.cq = ctx->rcq;
+	wr.wr.cqe_wait.cq_count = 1;
 	rc = ibv_post_send(ctx->mqp, &wr, NULL);
 	ASSERT_EQ(EOK, rc);
 
@@ -116,8 +116,8 @@ TEST_F(tc_verbs_post_send_wait, ti_3) {
 			wr.send_flags = IBV_SEND_SIGNALED | IBV_SEND_WAIT_EN_LAST;
 			wr.imm_data = 0;
 
-			wr.task.cqe_wait.cq = ctx->rcq;
-			wr.task.cqe_wait.cq_count = 1;
+			wr.wr.cqe_wait.cq = ctx->rcq;
+			wr.wr.cqe_wait.cq_count = 1;
 			rc = ibv_post_send(ctx->mqp, &wr, NULL);
 			ASSERT_EQ(EOK, rc);
 		}
@@ -163,8 +163,8 @@ TEST_F(tc_verbs_post_send_wait, ti_4) {
 			wr.send_flags = IBV_SEND_SIGNALED | IBV_SEND_WAIT_EN_LAST;
 			wr.imm_data = 0;
 
-			wr.task.cqe_wait.cq = ctx->rcq;
-			wr.task.cqe_wait.cq_count = (SEND_POST_COUNT + 1);
+			wr.wr.cqe_wait.cq = ctx->rcq;
+			wr.wr.cqe_wait.cq_count = (SEND_POST_COUNT + 1);
 
 			rc = ibv_post_send(ctx->mqp, &wr, NULL);
 			ASSERT_EQ(EOK, rc);
@@ -211,8 +211,8 @@ TEST_F(tc_verbs_post_send_wait, ti_5) {
 			wr.send_flags = IBV_SEND_SIGNALED | IBV_SEND_WAIT_EN_LAST;
 			wr.imm_data = 0;
 
-			wr.task.cqe_wait.cq = ctx->rcq;
-			wr.task.cqe_wait.cq_count = SEND_POST_COUNT;
+			wr.wr.cqe_wait.cq = ctx->rcq;
+			wr.wr.cqe_wait.cq_count = SEND_POST_COUNT;
 
 			rc = ibv_post_send(ctx->mqp, &wr, NULL);
 			ASSERT_EQ(EOK, rc);
@@ -282,12 +282,12 @@ TEST_F(tc_verbs_post_send_wait, ti_6) {
 			wr[2].send_flags = IBV_SEND_SIGNALED | IBV_SEND_WAIT_EN_LAST;
 			wr[2].imm_data = 0;
 
-			wr[0].task.cqe_wait.cq = ctx->rcq;
-			wr[0].task.cqe_wait.cq_count = SEND_POST_COUNT;
-			wr[1].task.cqe_wait.cq = ctx->rcq;
-			wr[1].task.cqe_wait.cq_count = SEND_POST_COUNT;
-			wr[2].task.cqe_wait.cq = ctx->rcq;
-			wr[2].task.cqe_wait.cq_count = SEND_POST_COUNT;
+			wr[0].wr.cqe_wait.cq = ctx->rcq;
+			wr[0].wr.cqe_wait.cq_count = SEND_POST_COUNT;
+			wr[1].wr.cqe_wait.cq = ctx->rcq;
+			wr[1].wr.cqe_wait.cq_count = SEND_POST_COUNT;
+			wr[2].wr.cqe_wait.cq = ctx->rcq;
+			wr[2].wr.cqe_wait.cq_count = SEND_POST_COUNT;
 
 			rc = ibv_post_send(ctx->mqp, wr, NULL);
 			ASSERT_EQ(EOK, rc);
@@ -348,8 +348,8 @@ TEST_F(tc_verbs_post_send_wait, ti_7) {
 			wr[0].send_flags = IBV_SEND_SIGNALED;
 			wr[0].imm_data = 0;
 
-			wr[0].task.cqe_wait.cq = ctx->rcq;
-			wr[0].task.cqe_wait.cq_count = SEND_POST_COUNT - 1;
+			wr[0].wr.cqe_wait.cq = ctx->rcq;
+			wr[0].wr.cqe_wait.cq_count = SEND_POST_COUNT - 1;
 
 			wr[1].wr_id = 2;
 			wr[1].next = &wr[2];
@@ -359,8 +359,8 @@ TEST_F(tc_verbs_post_send_wait, ti_7) {
 			wr[1].send_flags = IBV_SEND_SIGNALED;
 			wr[1].imm_data = 0;
 
-			wr[1].task.cqe_wait.cq = ctx->rcq;
-			wr[1].task.cqe_wait.cq_count = SEND_POST_COUNT;
+			wr[1].wr.cqe_wait.cq = ctx->rcq;
+			wr[1].wr.cqe_wait.cq_count = SEND_POST_COUNT;
 
 			wr[2].wr_id = 1;
 			wr[2].next = NULL;
@@ -370,8 +370,8 @@ TEST_F(tc_verbs_post_send_wait, ti_7) {
 			wr[2].send_flags = IBV_SEND_SIGNALED | IBV_SEND_WAIT_EN_LAST;
 			wr[2].imm_data = 0;
 
-			wr[2].task.cqe_wait.cq = ctx->rcq;
-			wr[2].task.cqe_wait.cq_count = SEND_POST_COUNT + 1;
+			wr[2].wr.cqe_wait.cq = ctx->rcq;
+			wr[2].wr.cqe_wait.cq_count = SEND_POST_COUNT + 1;
 
 			rc = ibv_post_send(ctx->mqp, wr, NULL);
 			ASSERT_EQ(EOK, rc);
@@ -420,8 +420,8 @@ TEST_F(tc_verbs_post_send_wait, ti_8) {
 		wr.send_flags = IBV_SEND_SIGNALED | IBV_SEND_WAIT_EN_LAST;
 		wr.imm_data = 0;
 
-		wr.task.cqe_wait.cq = ctx->rcq;
-		wr.task.cqe_wait.cq_count = ctx->cq_tx_depth + 3;
+		wr.wr.cqe_wait.cq = ctx->rcq;
+		wr.wr.cqe_wait.cq_count = ctx->cq_tx_depth + 3;
 
 		rc = ibv_post_send(ctx->mqp, &wr, NULL);
 		ASSERT_EQ(EOK, rc);
