@@ -48,7 +48,7 @@
 
 #define ibv_create_qp_ex                 ibv_exp_create_qp
 
-#define ibv_peer_commit              	 ibv_exp_peer_commit
+#define ibv_peer_commit			 ibv_exp_peer_commit
 #define ibv_peer_commit_qp               ibv_exp_peer_commit_qp
 
 #define ibv_qp_init_attr_ex              ibv_exp_qp_init_attr
@@ -84,12 +84,21 @@
 #define ibv_rollback_qp                  ibv_exp_rollback_qp
 #define ibv_peer_peek                    ibv_exp_peer_peek
 #define ibv_peer_peek_cq                 ibv_exp_peer_peek_cq
-#define ibv_peer_ack_peek                ibv_exp_peer_ack_peek
-#define ibv_peer_ack_peek_cq             ibv_exp_peer_ack_peek_cq
+#define ibv_peer_abort_peek              ibv_exp_peer_abort_peek
+#define ibv_peer_abort_peek_cq           ibv_exp_peer_abort_peek_cq
+
+#define ibv_create_cq_ex_(ctx, attr, n, ch) \
+		ibv_exp_create_cq(ctx, n, NULL, ch, 0, attr)
 
 #define IBV_PEER_DIRECTION_FROM_CPU	 IBV_EXP_PEER_DIRECTION_FROM_CPU
 #define IBV_PEER_DIRECTION_FROM_HCA	 IBV_EXP_PEER_DIRECTION_FROM_HCA
 
+#else
+
+#define ibv_create_cq_ex_(ctx, attr, n, ch) ({ \
+		(attr)->cqe = n; \
+		(attr)->channel = ch; \
+		ibv_create_cq_ex(ctx, attr); })
 #endif
 
 #include <infiniband/peer_ops.h>
@@ -100,82 +109,69 @@
 #include "common.h"
 
 #define DO(x) do { \
-		VERBS_TRACE("%d.%d: doing " #x "\n", __LINE__, i); \
-		ASSERT_EQ(x, 0); \
+		VERBS_TRACE("%d.%p.%d: doing " #x "\n", __LINE__, this, i); \
+		ASSERT_EQ(0, x) << "errno: " << errno; \
 	} while(0)
 
 #define SET(x,y) do { \
-		VERBS_TRACE("%d.%d: doing " #y "\n", __LINE__, i); \
+		VERBS_TRACE("%d.%p.%d: doing " #y "\n", __LINE__, this, i); \
 		x=y; \
 		ASSERT_TRUE(x) << #y << " errno: " << errno; \
 	} while(0)
+#define FREE(x,y) do { \
+		if (x) { \
+			VERBS_TRACE("%d.%p.%d: destroying " #y "(" #x ")\n", __LINE__, this, i); \
+			ASSERT_EQ(0, y(x)) << "errno: " << errno; \
+		} \
+		x = NULL; \
+	} while(0)
 
-class peerdirect_base_test : public testing::Test {
-protected:
+#define SZ 1024
+#define MAX_WR 8
+
+#define SENDER 0
+#define RECEIVER 1
+
+class ibverbs_env {
+public:
 	enum {
 		PAIR = 2,
-		SZ = 512,
-		MAX_CHANELS = 2,
-		MAX_WC = 6,
-		MAX_WR = 8,
+		GRH_LENGTH = 40,
+		Q_KEY = 0x11111111,
+		PATTERN = 0x5a,
 	};
 
 	struct ibv_port_attr port_attr[PAIR];
 	struct ibv_context *context[PAIR];
 	struct ibv_pd *domain[PAIR];
-	struct ibv_cq *queue[PAIR*MAX_CHANELS];
-	struct ibv_qp *queue_pair[PAIR*MAX_CHANELS];
-	struct ibv_mr *region[PAIR*MAX_CHANELS];
-	char buff[PAIR*MAX_CHANELS][SZ];
-	bool fatality;
+	struct ibv_cq *queue[PAIR];
+	struct ibv_qp *queue_pair[PAIR];
+	struct ibv_mr *region[PAIR];
+	struct ibv_ah *address[PAIR];
+	struct ibv_comp_channel *channel[PAIR];
+	char buff[PAIR][SZ];
 
-	void SetUp() {
-		int num_devices;
-		struct ibv_device **dev_list = NULL;
-		int i = 0;
+	virtual void poll(int i, int n) {
+		struct ibv_wc wc[n];
+		int result = 0, retries = 256;
 
-		SET(dev_list, ibv_get_device_list(&num_devices));
-		ASSERT_EQ(num_devices, PAIR);
+		VERBS_TRACE("polling %p.%d...\n", this, i);
 
-		for (i=0; i<PAIR; i++) {
-			SET(context[i], ibv_open_device(dev_list[i]));
-			DO(ibv_query_port(context[i], 1, &port_attr[i]));
-			SET(domain[i], ibv_alloc_pd(context[i]));
+		while (!result && --retries) {
+			result = ibv_poll_cq(queue[i], n, wc);
+			ASSERT_GE(result,0);
 		}
+		ASSERT_GT(retries,0);
 
-		ibv_free_device_list(dev_list);
-	}
-
-	void TearDown() {
-		int i;
-
-		for (i = 0 ; i < PAIR; i++) {
-			if (domain[i])
-				ibv_dealloc_pd(domain[i]);
-			if (context[i])
-				ibv_close_device(context[i]);
+		for (int i=0; i<result; i++) {
+			VERBS_TRACE("poll status %s(%d) opcode %d len %d qp %x lid %x\n",
+					ibv_wc_status_str(wc[i].status),
+					wc[i].status, wc[i].opcode, wc[i].byte_len, wc[i].qp_num, wc[i].slid);
+			ASSERT_EQ(0, wc[i].status);
 		}
 	}
 
-	void poll(int i) {
-		struct ibv_wc wc[MAX_WC];
-		int result = 0;
-
-		VERBS_INFO("polling %d...\n", i);
-
-		while (!result) {
-			result = ibv_poll_cq(queue[i], MAX_WC, wc);
-			ASSERT_FALSE(result<0);
-		}
-
-		for (i=0; i<result; i++) 
-			if (wc[i].status)
-				VERBS_INFO("poll status %s(%d) opcode %d len %d qp %d lid %d\n", 
-						ibv_wc_status_str(wc[i].status),
-						wc[i].status, wc[i].opcode, wc[i].byte_len, wc[i].qp_num, wc[i].slid);
-	}
-
-	void xmit(int i, int start, int length) {
+	virtual void xmit(int i, int start, int length) {
 		struct ibv_send_wr wr;
 		struct ibv_sge sge;
 		struct ibv_send_wr *bad_wr = NULL;
@@ -183,7 +179,7 @@ protected:
 		memset(&sge, 0, sizeof(sge));
 		sge.addr = (uintptr_t)buff[i]+start;
 		sge.length = length;
-		sge.lkey = region[0]->lkey;
+		sge.lkey = region[i]->lkey;
 
 		memset(&wr, 0, sizeof(wr));
 		wr.next = NULL;
@@ -194,145 +190,8 @@ protected:
 		wr.send_flags = IBV_SEND_SIGNALED;
 		DO(ibv_post_send(queue_pair[i], &wr, &bad_wr));
 	}
-		
-	void ops2wr(struct peer_op_wr *op, int entries, int peer, void* buff,
-			struct ibv_send_wr *wr, struct ibv_sge *sge) {
-		char * ptr = (char *)buff;
-		int i;
-			
-		memset(wr, 0, MAX_WR*sizeof(*wr));
-		memset(sge, 0, MAX_WR*sizeof(*sge));
-		for(i=0; i < entries; op = op->next, i++) {
-			wr[i].opcode = IBV_WR_RDMA_WRITE;
-			if (op->type == IBV_PEER_OP_STORE_DWORD ||
-					op->type == IBV_PEER_OP_POLL_AND_DWORD ||
-					op->type == IBV_PEER_OP_POLL_NOR_DWORD) {
-				sge[i].addr = (uintptr_t)ptr;
-				memcpy(ptr, &op->wr.dword_va.data, 4);
-				ptr += 4;
-				wr[i].wr.rdma.remote_addr = (uintptr_t)op->wr.dword_va.target_va;
-				sge[i].length = 4;
-				if (op->type != IBV_PEER_OP_STORE_DWORD) 
-					wr[i].opcode = IBV_WR_RDMA_READ;
-			} else if (op->type == IBV_PEER_OP_STORE_QWORD) {
-				sge[i].addr = (uintptr_t)ptr;
-				memcpy(ptr, &op->wr.qword_va.data, 8);
-				ptr += 8;
-				wr[i].wr.rdma.remote_addr = (uintptr_t)op->wr.qword_va.target_va;
-				sge[i].length = 8;
-			} else {
-				ASSERT_TRUE(0) << "unknown type: " << op->type;
-			}
 
-			for (std::list<peer_mr *>::iterator it=mr_list.begin(); it!=mr_list.end(); it++) {
-				uintptr_t start = wr[i].wr.rdma.remote_addr, end = start + sge[i].length - 1;
-				if (start >= (*it)->start && end <= (*it)->end) {
-					wr[i].wr.rdma.rkey = (*it)->region->rkey;
-					break;
-				}
-			}
-			ASSERT_TRUE(wr[i].wr.rdma.rkey);
-			sge[i].lkey = region[peer]->lkey;
-			wr[i].sg_list = &sge[i];
-			wr[i].num_sge = 1;
-			if (i)
-				wr[i-1].next = &wr[i];
-			wr[i].next = NULL;
-		}
-	}
-
-	struct xmit_peer_ctx {
-		struct ibv_send_wr wr1[MAX_WR], wr2[MAX_WR];
-		struct ibv_sge sge1[MAX_WR], sge2[MAX_WR];
-		int peek_op_type;
-		uint32_t peek_op_data;
-		uint64_t peek_id;
-		uint64_t rollback_id;
-		union {
-			struct {
-				struct {
-					uint32_t db_record;	
-					uint64_t db_ring;	
-				} commit;
-				struct {
-					uint32_t owner;	
-				} peek;
-			} * f;
-			char * buff;
-		} ctrl;
-	};
-
-	void xmit_peer(int i, int peer) {
-		xmit_peer_ctx ctx;
-		ASSERT_NO_FATAL_FAILURE(peer_prep(i, peer, &ctx));
-		ASSERT_NO_FATAL_FAILURE(peer_exec(i, peer, &ctx));
-	}
-
-	void peer_prep(int i, int peer, xmit_peer_ctx* ctx, int offset = 0) {
-		int n = MAX_WR;
-		struct peer_op_wr op_buff1[MAX_WR], op_buff2[MAX_WR];
-		struct ibv_peer_commit commit_ops;
-		commit_ops.storage = op_buff1;
-		commit_ops.entries = MAX_WR;
-		struct ibv_peer_peek peek_ops;
-		peek_ops.storage = op_buff2;
-		peek_ops.entries = MAX_WR;
-		peek_ops.cqe_offset_from_head = offset;
-
-		ctx->ctrl.buff = buff[peer];
-
-		memset(&op_buff1, 0, sizeof(op_buff1));
-		memset(&op_buff2, 0, sizeof(op_buff2));
-		while(--n) {
-			op_buff1[n-1].next = &op_buff1[n];
-			op_buff2[n-1].next = &op_buff2[n];
-		}
-
-		DO(ibv_peer_commit_qp(queue_pair[i], &commit_ops));
-		DO(ibv_peer_peek_cq(queue[i], &peek_ops));
-		ASSERT_NO_FATAL_FAILURE(ops2wr(commit_ops.storage, commit_ops.entries, peer, &ctx->ctrl.f->commit, ctx->wr1, ctx->sge1));
-		ASSERT_NO_FATAL_FAILURE(ops2wr(peek_ops.storage, peek_ops.entries, peer, &ctx->ctrl.f->peek, ctx->wr2, ctx->sge2));
-		ctx->rollback_id = commit_ops.rollback_id;
-		ctx->peek_op_type = peek_ops.storage->type;
-		ctx->peek_op_data = peek_ops.storage->wr.dword_va.data;
-		ctx->peek_id = peek_ops.peek_id;
-	} 
-
-	void peer_exec(int i, int peer, xmit_peer_ctx* ctx) {
-		struct ibv_send_wr *bad_wr = NULL;
-
-		DO(ibv_post_send(queue_pair[peer], ctx->wr1, &bad_wr));
-		poll(peer);
-
-		VERBS_INFO("peer polling...\n");
-		while(1) {
-			DO(ibv_post_send(queue_pair[peer], ctx->wr2, &bad_wr));
-			poll(peer);
-			if (ctx->peek_op_type == IBV_PEER_OP_POLL_AND_DWORD) {
-				if (ctx->ctrl.f->peek.owner & ctx->peek_op_data)
-					break;
-			} else if (ctx->peek_op_type == IBV_PEER_OP_POLL_NOR_DWORD) {
-				if (~(ctx->ctrl.f->peek.owner | ctx->peek_op_data))
-					break;
-			} else {
-				ASSERT_TRUE(0) << "unknown type: " << ctx->peek_op_type;
-			}
-		}
-
-		struct ibv_peer_ack_peek ack_ops;
-		ack_ops.peek_id = ctx->peek_id;
-		DO(ibv_peer_ack_peek_cq(queue[i], &ack_ops));
-		
-	}
-
-	void peer_fail(int i, int flags, xmit_peer_ctx* ctx) {
-		struct ibv_rollback_ctx rb_ctx;
-		rb_ctx.rollback_id = ctx->rollback_id;
-		rb_ctx.flags = flags;
-		DO(ibv_rollback_qp(queue_pair[i], &rb_ctx));
-	}
-
-	void recv(int i, int start, int length) {
+	virtual void recv(int i, int start, int length) {
 		struct ibv_recv_wr wr;
 		struct ibv_sge sge;
 		struct ibv_recv_wr *bad_wr = NULL;
@@ -350,143 +209,92 @@ protected:
 		DO(ibv_post_recv(queue_pair[i], &wr, &bad_wr));
 	}
 
-	struct peer_ctx {
-		peerdirect_base_test& t;
-		struct ibv_pd *domain;
+	virtual enum ibv_qp_type qp_type() = 0;
 
-		peer_ctx(peerdirect_base_test& _t, struct ibv_pd *d) : t(_t), domain(d) {}
-	};
-
-	struct peer_mr {
-		peer_ctx &ctx;
-		struct ibv_mr *region;
-		uintptr_t start;
-		uintptr_t end;
-		peer_mr(peer_ctx &c, void* base, size_t length) : ctx(c) {
-			start = (uintptr_t)base;
-			end = start+length-1;
-		}
-	};
-
-	std::list<peer_mr *> mr_list;
-	std::set<struct ibv_peer_mr *> wq_set;
-
-	static inline int qp2dev(int i) {
-	       return i/2;
-	}
-
-	static uint64_t register_va_for_peer(void *start, size_t length, uint64_t peer_id) {
-		/* TODO mutex */
-		peer_ctx *ctx = (peer_ctx *)peer_id;
-		peer_mr *reg_h = new peer_mr(*ctx, start, length);
-		       
-		reg_h->region = ibv_reg_mr(ctx->domain, start, length,
-					IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
-		if (!reg_h->region) {
-			EXPECT_TRUE(false) << "ibv_reg_mr on peer memory failed";
-			reg_h->ctx.t.fatality = true;
-		}
-		
-		reg_h->ctx.t.mr_list.push_back(reg_h);
-
-		return (uint64_t)reg_h;
-	}
-
-	static void unregister_va_for_peer(uint64_t registration_id, uint64_t peer_id) {
-		peer_mr *reg_h = (peer_mr *)registration_id;
-		if(ibv_dereg_mr(reg_h->region)) {
-			EXPECT_TRUE(false) << "ibv_dereg_mr on peer memory failed";
-			reg_h->ctx.t.fatality = true;
-		}
-		reg_h->ctx.t.mr_list.remove(reg_h);
-		delete reg_h;
-	}
-
-	static int work_queue_alloc(struct ibv_peer_mr *pmr) {
-		peer_ctx *ctx = (peer_ctx *)pmr->peer_id;
-		pmr->addr = mmap(NULL, pmr->length, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
-		VERBS_TRACE("work_queue_alloc %p[%lx]\n", pmr->addr, pmr->length);
-		if (pmr->addr == MAP_FAILED) {
-			ctx->t.fatality = true;
-			return -1;
-		}
-		ctx->t.wq_set.insert(pmr);
-		return 0;
-	}
-
-	static void work_queue_release(struct ibv_peer_mr *pmr) {
-		peer_ctx *ctx = (peer_ctx *)pmr->peer_id;
-		VERBS_TRACE("work_queue_release %p[%lx]\n", pmr->addr, pmr->length);
-		munmap(pmr->addr, pmr->length);
-		if (ctx->t.wq_set.erase(pmr) != 1) 
-			ctx->t.fatality = true;
-	}
-
-	void init_pd_qp(int i, int peer) {		
-		struct ibv_qp_init_attr_ex qp_attr;
-		struct ibv_create_cq_attr_ex cq_attr;
-		struct ibv_peer_direct_attr pd_attr;
-
-		memset(&qp_attr, 0, sizeof(qp_attr));
-		memset(&cq_attr, 0, sizeof(cq_attr));
-		memset(&pd_attr, 0, sizeof(pd_attr));
-
-		peer_ctx * ctx = new peer_ctx(*this, domain[peer]);
-
-		pd_attr.peer_id = (uint64_t)ctx;
-		pd_attr.register_va_for_peer = register_va_for_peer;
-		pd_attr.unregister_va_for_peer = unregister_va_for_peer;
-		pd_attr.work_queue_alloc = work_queue_alloc;
-		pd_attr.work_queue_release = work_queue_release;
-		pd_attr.caps = IBV_PEER_OP_STORE_DWORD|IBV_PEER_OP_STORE_QWORD
-			|IBV_PEER_OP_POLL_AND_DWORD|IBV_PEER_OP_POLL_NOR_DWORD;
-
-		qp_attr.comp_mask = IBV_QP_INIT_ATTR_PEER_DIRECT|IBV_QP_INIT_ATTR_PD;
-		qp_attr.qp_type = IBV_QPT_RC;
-		qp_attr.sq_sig_all = 1;
-		qp_attr.cap.max_send_wr = 10;
-		qp_attr.cap.max_recv_wr = 10;
-		qp_attr.cap.max_send_sge = 1;
-		qp_attr.cap.max_recv_sge = 1;
-		qp_attr.pd = domain[qp2dev(i)];
-		qp_attr.peer_direct_attrs = &pd_attr;
-
-		cq_attr.comp_mask = IBV_CREATE_CQ_ATTR_PEER_DIRECT;
-		cq_attr.peer_direct_attrs = &pd_attr;
-
-#ifdef PEER_DIRECT_EXP
-		SET(queue[i], ibv_exp_create_cq(context[qp2dev(i)], 1, NULL, NULL, 0, &cq_attr));
-#else
-		cq_attr.cqe = 1;
-		SET(queue[i], ibv_create_cq_ex(context[qp2dev(i)], &cq_attr));
-#endif
-		qp_attr.send_cq = qp_attr.recv_cq = queue[i];
-
-		SET(region[i], ibv_reg_mr(domain[qp2dev(i)], buff[i], SZ, 
-					IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE));
-		SET(queue_pair[i], ibv_create_qp_ex(context[qp2dev(i)], &qp_attr));
-		ASSERT_FALSE(fatality);
-	}
-
-	void init_qp(int i) {		
+	virtual void init_qp(int i) {
 		struct ibv_qp_init_attr attr;
-		SET(queue[i], ibv_create_cq(context[qp2dev(i)], 1, NULL, NULL, 0));
-		SET(region[i], ibv_reg_mr(domain[qp2dev(i)], buff[i], SZ, 
-					IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ));
+		SET(channel[i], ibv_create_comp_channel(context[i]));
+		SET(queue[i], ibv_create_cq(context[i], 2, NULL, channel[i], 0)); /* NB: cqe 1 will unveil bariers porblems */
+		SET(region[i], ibv_reg_mr(domain[i], buff[i], SZ,
+					IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE));
 
 		memset(&attr, 0, sizeof(attr));
-		attr.qp_type = IBV_QPT_RC;
+		attr.qp_type = qp_type();
 		attr.sq_sig_all = 1;
 		attr.send_cq = queue[i];
 		attr.recv_cq = queue[i];
 		attr.cap.max_send_wr = 10;
 		attr.cap.max_recv_wr = 10;
-		attr.cap.max_send_sge = 1;
-		attr.cap.max_recv_sge = 1;
-		SET(queue_pair[i], ibv_create_qp(domain[qp2dev(i)], &attr));
+		attr.cap.max_send_sge = 10;
+		attr.cap.max_recv_sge = 10;
+		SET(queue_pair[i], ibv_create_qp(domain[i], &attr));
 	}
 
-	void to_init(int i) {
+	virtual void arm_qp(int i) {}
+
+	virtual void to_init(int i) = 0;
+
+	virtual void to_rtr(int i, int r) = 0;
+
+	virtual void to_rts(int i) = 0;
+
+	virtual void init() {
+		int num_devices;
+		struct ibv_device **dev_list = NULL;
+		int i = 0;
+
+		SET(dev_list, ibv_get_device_list(&num_devices));
+		ASSERT_EQ(PAIR, num_devices);
+
+		for (i=0; i<PAIR; i++) {
+			SET(context[i], ibv_open_device(dev_list[i]));
+			DO(ibv_query_port(context[i], 1, &port_attr[i]));
+			SET(domain[i], ibv_alloc_pd(context[i]));
+			channel[i] = NULL;
+		}
+
+		ibv_free_device_list(dev_list);
+
+		ASSERT_NO_FATAL_FAILURE(init_qp(SENDER));
+		ASSERT_NO_FATAL_FAILURE(init_qp(RECEIVER));
+
+		ASSERT_NO_FATAL_FAILURE(arm_qp(SENDER));
+		ASSERT_NO_FATAL_FAILURE(arm_qp(RECEIVER));
+
+		ASSERT_NO_FATAL_FAILURE(to_init(SENDER));
+		ASSERT_NO_FATAL_FAILURE(to_init(RECEIVER));
+
+		ASSERT_NO_FATAL_FAILURE(to_rtr(RECEIVER, SENDER));
+		ASSERT_NO_FATAL_FAILURE(to_rtr(SENDER, RECEIVER));
+
+		ASSERT_NO_FATAL_FAILURE(to_rts(SENDER));
+
+		memset(this->buff[SENDER], this->PATTERN, SZ);
+		memset(this->buff[RECEIVER], 0, SZ);
+	}
+
+	virtual void check_fin(int n) = 0;
+
+	virtual void fini() {
+		int i;
+		for (i = 0; i < PAIR; i++) {
+			FREE(queue_pair[i], ibv_destroy_qp);
+			FREE(region[i], ibv_dereg_mr);
+			FREE(queue[i], ibv_destroy_cq);
+			FREE(domain[i], ibv_dealloc_pd);
+			FREE(channel[i], ibv_destroy_comp_channel);
+			FREE(context[i], ibv_close_device);
+		}
+	}
+
+};
+
+class ibverbs_env_rc : public virtual ibverbs_env {
+public:
+
+	virtual enum ibv_qp_type qp_type() { return IBV_QPT_RC; }
+
+	virtual void to_init(int i) {
 		struct ibv_qp_attr attr;
 		int flags;
 
@@ -499,11 +307,11 @@ protected:
 		DO(ibv_modify_qp(queue_pair[i], &attr, flags));
 	}
 
-	void to_rtr(int i, int r) {
+	virtual void to_rtr(int i, int r) {
 		struct ibv_qp_attr attr;
 		int flags;
 		uint32_t remote_qpn = queue_pair[r]->qp_num;
-		uint16_t dlid = port_attr[qp2dev(r)].lid;
+		uint16_t dlid = port_attr[r].lid;
 
 		memset(&attr, 0, sizeof(attr));
 		attr.qp_state = IBV_QPS_RTR;
@@ -522,7 +330,7 @@ protected:
 		DO(ibv_modify_qp(queue_pair[i], &attr, flags));
 	}
 
-	void to_rts(int i) {
+	virtual void to_rts(int i) {
 		struct ibv_qp_attr attr;
 		int flags;
 
@@ -539,142 +347,660 @@ protected:
 		DO(ibv_modify_qp(queue_pair[i], &attr, flags));
 	}
 
-	void init() {
-		ASSERT_NO_FATAL_FAILURE(init_pd_qp(0, qp2dev(2)));
-		ASSERT_NO_FATAL_FAILURE(init_pd_qp(1, qp2dev(3)));
-
-		ASSERT_NO_FATAL_FAILURE(init_qp(2));
-		ASSERT_NO_FATAL_FAILURE(init_qp(3));
-
-		ASSERT_NO_FATAL_FAILURE(to_init(0));
-		ASSERT_NO_FATAL_FAILURE(to_init(1));
-		ASSERT_NO_FATAL_FAILURE(to_init(2));
-		ASSERT_NO_FATAL_FAILURE(to_init(3));
-
-		VERBS_INFO("connect lid %d-%d qp0 %d qp1 %d qp2 %d qp3 %d\n", 
-				port_attr[0].lid, port_attr[1].lid,
-				queue_pair[0]->qp_num, queue_pair[1]->qp_num,
-				queue_pair[2]->qp_num, queue_pair[3]->qp_num);
-
-		ASSERT_NO_FATAL_FAILURE(to_rtr(1, 0));
-		ASSERT_NO_FATAL_FAILURE(to_rtr(0, 1));
-		ASSERT_NO_FATAL_FAILURE(to_rtr(3, 2));
-		ASSERT_NO_FATAL_FAILURE(to_rtr(2, 3));
-
-		ASSERT_NO_FATAL_FAILURE(to_rts(0));
-		ASSERT_NO_FATAL_FAILURE(to_rts(2));
-
-		memset(buff[0], 0x5a, SZ);
-		memset(buff[1], 0, SZ);
-
-	}
-
-	void fini() {
+	virtual void check_fin(int n) {
 		int i;
-		ASSERT_FALSE(HasFailure());
-		ASSERT_NO_FATAL_FAILURE(poll(1));
+		ASSERT_NO_FATAL_FAILURE(this->poll(RECEIVER,n));
 
 		for (i = 0; i < SZ; i++)
-			ASSERT_EQ(buff[1][i], 0x5a);
-
-		for (i = 0 ; i < PAIR*MAX_CHANELS; i++) {
-			if (queue_pair[i])
-				ASSERT_FALSE(ibv_destroy_qp(queue_pair[i]));
-			queue_pair[i] = NULL;
-			if (region[i])
-				ASSERT_FALSE(ibv_dereg_mr(region[i]));
-			region[i] = NULL;
-			if (queue[i]) 
-				ASSERT_FALSE(ibv_destroy_cq(queue[i]));
-			queue[i] = NULL;
-		}
-		ASSERT_EQ(wq_set.size(), 0);
+			ASSERT_EQ(PATTERN, buff[RECEIVER][i]) << "i=" << i;
 	}
 };
 
-class peerdirect_test : public peerdirect_base_test {
-protected:
+class ibverbs_env_uc : public virtual ibverbs_env {
+public:
+
+	virtual enum ibv_qp_type qp_type() { return IBV_QPT_UC; }
+
+	virtual void to_init(int i) {
+		struct ibv_qp_attr attr;
+		int flags;
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state = IBV_QPS_INIT;
+		attr.port_num = 1;
+		attr.pkey_index = 0;
+		attr.qp_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+		flags = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS;
+		DO(ibv_modify_qp(queue_pair[i], &attr, flags));
+	}
+
+	virtual void to_rtr(int i, int r) {
+		struct ibv_qp_attr attr;
+		int flags;
+		uint32_t remote_qpn = queue_pair[r]->qp_num;
+		uint16_t dlid = port_attr[r].lid;
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state = IBV_QPS_RTR;
+		attr.path_mtu = IBV_MTU_512;
+		attr.dest_qp_num = remote_qpn;
+		attr.rq_psn = 0;
+		attr.ah_attr.is_global = 0;
+		attr.ah_attr.dlid = dlid;
+		attr.ah_attr.sl = 0;
+		attr.ah_attr.src_path_bits = 0;
+		attr.ah_attr.port_num = 1;
+		flags = IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN |
+			IBV_QP_RQ_PSN;
+		DO(ibv_modify_qp(queue_pair[i], &attr, flags));
+	}
+
+	virtual void to_rts(int i) {
+		struct ibv_qp_attr attr;
+		int flags;
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state = IBV_QPS_RTS;
+		attr.sq_psn = 0;
+		flags = IBV_QP_STATE | IBV_QP_SQ_PSN ;
+
+		DO(ibv_modify_qp(queue_pair[i], &attr, flags));
+	}
+
+	virtual void check_fin(int n) {
+		int i;
+		ASSERT_NO_FATAL_FAILURE(this->poll(RECEIVER,n));
+
+		for (i = 0; i < SZ; i++)
+			ASSERT_EQ(PATTERN, buff[RECEIVER][i]) << "i=" << i;
+	}
+};
+
+class ibverbs_env_ud : public virtual ibverbs_env {
+public:
+	virtual enum ibv_qp_type qp_type() { return IBV_QPT_UD; }
+	uint32_t remote;
+
+	virtual void xmit(int i, int start, int length) {
+		struct ibv_send_wr wr;
+		struct ibv_sge sge;
+		struct ibv_send_wr *bad_wr = NULL;
+
+		memset(&sge, 0, sizeof(sge));
+		sge.addr = (uintptr_t)buff[i]+start;
+		sge.length = length - GRH_LENGTH;
+		sge.lkey = region[i]->lkey;
+
+		memset(&wr, 0, sizeof(wr));
+		wr.next = NULL;
+		wr.wr_id = 0;
+		wr.sg_list = &sge;
+		wr.num_sge = 1;
+		wr.opcode = IBV_WR_SEND;
+		wr.send_flags = IBV_SEND_SIGNALED;
+
+                wr.wr.ud.ah = address[i];
+		wr.wr.ud.remote_qpn = queue_pair[remote]->qp_num;
+		wr.wr.ud.remote_qkey = Q_KEY;
+
+		DO(ibv_post_send(queue_pair[i], &wr, &bad_wr));
+	}
+
+	virtual void to_init(int i) {
+		struct ibv_qp_attr attr;
+		int flags;
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state = IBV_QPS_INIT;
+		attr.port_num = 1;
+		attr.pkey_index = 0;
+		attr.qkey = Q_KEY;
+		flags = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_QKEY;
+		DO(ibv_modify_qp(queue_pair[i], &attr, flags));
+	}
+
+	virtual void to_rtr(int i, int r) {
+		struct ibv_qp_attr attr;
+		int flags;
+		uint16_t dlid = port_attr[r].lid;
+
+		remote = r;
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state = IBV_QPS_RTR;
+		flags = IBV_QP_STATE;
+		DO(ibv_modify_qp(queue_pair[i], &attr, flags));
+
+		attr.ah_attr.is_global = 0;
+		attr.ah_attr.dlid = dlid;
+		attr.ah_attr.sl = 0;
+		attr.ah_attr.src_path_bits = 0;
+		attr.ah_attr.port_num = 1;
+		SET(address[i], ibv_create_ah(domain[i], &attr.ah_attr));
+	}
+
+	virtual void to_rts(int i) {
+		struct ibv_qp_attr attr;
+		int flags;
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state = IBV_QPS_RTS;
+		attr.sq_psn = 0;
+		flags = IBV_QP_STATE | IBV_QP_SQ_PSN;
+
+		DO(ibv_modify_qp(queue_pair[i], &attr, flags));
+	}
+
+	virtual void check_fin(int n) {
+		int i, j;
+
+		ASSERT_NO_FATAL_FAILURE(poll(RECEIVER,n));
+		for (j = 0; j < n; j++)
+			for (i = SZ/n*j+GRH_LENGTH; i < SZ/n*(j+1); i++)
+				ASSERT_EQ(PATTERN, buff[RECEIVER][i]) 
+					<< "i=" << i << " j=" << j;
+	}
+};
+
+class nothing { };
+
+class ibverbs_event : public virtual ibverbs_env {
+public:
+	int num_cq_events;
+
+	virtual void poll(int i, int n) {
+		if (i == RECEIVER) {
+			ibverbs_env::poll(i,n);
+			return;
+		}
+		struct ibv_wc wc[n];
+		struct ibv_cq *ev_cq;
+		void *ev_ctx;
+		int result;
+
+		DO(ibv_get_cq_event(channel[i], &ev_cq, &ev_ctx));
+		ASSERT_EQ(ev_cq, queue[i]);
+		num_cq_events++;
+		DO(ibv_req_notify_cq(queue[i], 0));
+		result = ibv_poll_cq(queue[i], n, wc);
+		ASSERT_GT(result,0);
+
+		for (int i=0; i<result; i++) {
+			VERBS_TRACE("poll status %s(%d) opcode %d len %d qp %x lid %x\n",
+					ibv_wc_status_str(wc[i].status),
+					wc[i].status, wc[i].opcode, wc[i].byte_len, wc[i].qp_num, wc[i].slid);
+			ASSERT_FALSE(wc[i].status);
+		}
+	}
+
+	virtual void arm_qp(int i) {
+		num_cq_events = 0;
+		if (i == SENDER)
+			DO(ibv_req_notify_cq(queue[i], 0));
+	}
+
+	virtual void fini() {
+		VERBS_TRACE("num_cq_events %d\n", num_cq_events);
+		ibv_ack_cq_events(queue[SENDER], num_cq_events);
+		ASSERT_NO_FATAL_FAILURE(ibverbs_env::fini());
+	}
+};
+
+template <typename T1, typename T2>
+struct types {
+	typedef T1 Base;
+	typedef T2 Aux;
+};
+
+typedef testing::Types<
+	types<ibverbs_env_rc, nothing>,
+	types<ibverbs_env_rc, ibverbs_event>,
+	types<ibverbs_env_ud, nothing>,
+	types<ibverbs_env_ud, ibverbs_event>,
+	types<ibverbs_env_uc, nothing>,
+	types<ibverbs_env_uc, ibverbs_event>
+> ibverbs_env_list;
+
+template <typename T>
+class base_test : public testing::Test, public T::Base, public T::Aux {
 	virtual void SetUp() {
-		ASSERT_NO_FATAL_FAILURE(peerdirect_base_test::SetUp());
-		ASSERT_NO_FATAL_FAILURE(peerdirect_base_test::init());
+		ASSERT_NO_FATAL_FAILURE(this->init());
 	}
 
 	virtual void TearDown() {
-		ASSERT_NO_FATAL_FAILURE(peerdirect_base_test::fini());
-		ASSERT_NO_FATAL_FAILURE(peerdirect_base_test::TearDown());
+		ASSERT_FALSE(HasFailure());
+		ASSERT_NO_FATAL_FAILURE(this->fini());
 	}
-
 };
 
-TEST_F(peerdirect_base_test, t0_no_pd) {
-	ASSERT_NO_FATAL_FAILURE(init_qp(0));
-	ASSERT_NO_FATAL_FAILURE(init_qp(1));
 
-	ASSERT_NO_FATAL_FAILURE(to_init(0));
-	ASSERT_NO_FATAL_FAILURE(to_init(1));
+TYPED_TEST_CASE(base_test, ibverbs_env_list);
 
-	ASSERT_NO_FATAL_FAILURE(to_rtr(1, 0));
-	ASSERT_NO_FATAL_FAILURE(to_rtr(0, 1));
+TYPED_TEST(base_test, t0_no_pd) {
+	ASSERT_NO_FATAL_FAILURE(this->recv(RECEIVER, 0, SZ/2));
+	ASSERT_NO_FATAL_FAILURE(this->xmit(SENDER, 0, SZ/2));
+	ASSERT_NO_FATAL_FAILURE(this->poll(SENDER, 1));
 
-	ASSERT_NO_FATAL_FAILURE(to_rts(0));
+	ASSERT_NO_FATAL_FAILURE(this->recv(RECEIVER, SZ/2, SZ/2));
+	ASSERT_NO_FATAL_FAILURE(this->xmit(SENDER, SZ/2, SZ/2));
+	ASSERT_NO_FATAL_FAILURE(this->poll(SENDER, 1));
 
-	memset(buff[0], 0x5a, SZ);
-	memset(buff[1], 0, SZ);
-
-	ASSERT_NO_FATAL_FAILURE(recv(1, 0, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(xmit(0, 0, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(poll(0));
-
-	ASSERT_NO_FATAL_FAILURE(recv(1, SZ/2, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(xmit(0, SZ/2, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(poll(0));
-
-	ASSERT_NO_FATAL_FAILURE(fini());
+	ASSERT_NO_FATAL_FAILURE(this->check_fin(2));
 }
 
-TEST_F(peerdirect_test, t1_1_send) {
-	ASSERT_NO_FATAL_FAILURE(recv(1, 0, SZ));
-	ASSERT_NO_FATAL_FAILURE(xmit(0, 0, SZ));
-	ASSERT_NO_FATAL_FAILURE(xmit_peer(0, 2));
+struct xmit_peer_ctx {
+	struct ibv_send_wr wr1[MAX_WR], wr2[MAX_WR];
+	struct ibv_sge sge1[MAX_WR], sge2[MAX_WR];
+	int peek_op_type;
+	uint32_t peek_op_data;
+	uint64_t peek_id;
+	uint64_t rollback_id;
+	union {
+		struct xmit_buff {
+			struct {
+				uint32_t db_record;
+				uint64_t db_ring;
+			} commit;
+			struct {
+				uint32_t owner;
+				uint32_t cons_index;
+				uint32_t db_record;
+			} peek;
+		} * f;
+		char * buff;
+	} ctrl;
+};
+
+template <typename T>
+class peerdirect_test : public testing::Test, public T::Base, public T::Aux {
+public:
+	struct peer_ctx {
+		peerdirect_test& t;
+		struct ibv_pd *domain;
+
+		peer_ctx(peerdirect_test& _t, struct ibv_pd *d) : t(_t), domain(d) {}
+	};
+
+	struct peer_mr {
+		peer_ctx &ctx;
+		struct ibv_mr *region;
+		uintptr_t start;
+		uintptr_t end;
+		peer_mr(peer_ctx &c, void* base, size_t length) : ctx(c) {
+			start = (uintptr_t)base;
+			end = start+length-1;
+		}
+	};
+
+	struct queue_buf {
+		struct ibv_peer_buf pb;
+		peer_ctx * ctx;
+		size_t length;
+	};
+
+
+	std::list<struct peer_mr *> mr_list;
+	std::set<struct queue_buf *> wq_set;
+	ibverbs_env_rc peer;
+	bool fatality;
+	char *buff_pos;
+	uint32_t *cons_index;
+
+	void ops2wr(struct peer_op_wr *op, int entries, void* buff,
+			struct ibv_send_wr *wr, struct ibv_sge *sge) {
+		char * ptr = (char *)buff;
+		int i;
+
+		memset(wr, 0, MAX_WR*sizeof(*wr));
+		memset(sge, 0, MAX_WR*sizeof(*sge));
+		for(i=0; i < entries; op = op->next, i++) {
+			wr[i].opcode = IBV_WR_RDMA_WRITE;
+			if (op->type == IBV_PEER_OP_STORE_DWORD ||
+					op->type == IBV_PEER_OP_POLL_AND_DWORD ||
+					op->type == IBV_PEER_OP_POLL_NOR_DWORD) {
+				sge[i].addr = (uintptr_t)ptr;
+				memcpy(ptr, &op->wr.dword_va.data, 4);
+				ptr += 4;
+				wr[i].wr.rdma.remote_addr = (uintptr_t)op->wr.dword_va.target_va;
+				sge[i].length = 4;
+				if (op->type != IBV_PEER_OP_STORE_DWORD)
+					wr[i].opcode = IBV_WR_RDMA_READ;
+			} else if (op->type == IBV_PEER_OP_STORE_QWORD) {
+				sge[i].addr = (uintptr_t)ptr;
+				memcpy(ptr, &op->wr.qword_va.data, 8);
+				ptr += 8;
+				wr[i].wr.rdma.remote_addr = (uintptr_t)op->wr.qword_va.target_va;
+				sge[i].length = 8;
+			} else {
+				ASSERT_TRUE(0) << "unknown type: " << op->type;
+			}
+
+			for (class std::list<peer_mr *>::iterator it=mr_list.begin(); it!=mr_list.end(); it++) {
+				uintptr_t start = wr[i].wr.rdma.remote_addr, end = start + sge[i].length - 1;
+				if (start >= (*it)->start && end <= (*it)->end) {
+					wr[i].wr.rdma.rkey = (*it)->region->rkey;
+					break;
+				}
+			}
+			ASSERT_TRUE(wr[i].wr.rdma.rkey);
+			sge[i].lkey = peer.region[SENDER]->lkey;
+			wr[i].sg_list = &sge[i];
+			wr[i].num_sge = 1;
+			if (i && wr[i-1].opcode != IBV_WR_RDMA_READ)
+				wr[i-1].next = &wr[i];
+			wr[i].next = NULL;
+		}
+	}
+
+	void xmit_peer(int i) {
+		xmit_peer_ctx ctx;
+		memset(&ctx, 0, sizeof(ctx));
+		ASSERT_NO_FATAL_FAILURE(peer_prep(i, &ctx, 1));
+		ASSERT_NO_FATAL_FAILURE(peer_exec(i, &ctx));
+		ASSERT_NO_FATAL_FAILURE(peer_poll(i, &ctx));
+	}
+
+	void xmit_peer_prep(int i, int j, int n, xmit_peer_ctx* ctx) {
+		int k;
+		memset(ctx, 0, sizeof(*ctx)*n);
+		for(k = 0; k < n; k++) {
+			ASSERT_NO_FATAL_FAILURE(this->xmit(i, SZ/n*k, SZ/n));
+			ASSERT_NO_FATAL_FAILURE(this->peer_prep(i, ctx+k, k+1));
+			ASSERT_NO_FATAL_FAILURE(this->recv(j, SZ/n*k, SZ/n));
+		}
+	}
+
+	void peer_prep(int i, xmit_peer_ctx* ctx, int offset) {
+		int n = MAX_WR;
+		struct peer_op_wr op_buff[2][MAX_WR];
+		struct ibv_peer_commit commit_ops;
+		commit_ops.storage = op_buff[0];
+		commit_ops.entries = MAX_WR;
+		struct ibv_peer_peek peek_ops;
+		peek_ops.storage = op_buff[1];
+		peek_ops.entries = MAX_WR;
+		peek_ops.cqe_offset_from_head = offset;
+
+		ctx->ctrl.buff = buff_pos;
+		buff_pos += sizeof(*(ctx->ctrl.f));
+
+		memset(&op_buff, 0, sizeof(op_buff));
+		while(--n) {
+			op_buff[0][n-1].next = &op_buff[0][n];
+			op_buff[1][n-1].next = &op_buff[1][n];
+		}
+
+		DO(ibv_peer_commit_qp(this->queue_pair[i], &commit_ops));
+		DO(ibv_peer_peek_cq(this->queue[i], &peek_ops));
+		ASSERT_NO_FATAL_FAILURE(ops2wr(commit_ops.storage, commit_ops.entries, &ctx->ctrl.f->commit, ctx->wr1, ctx->sge1));
+		ASSERT_NO_FATAL_FAILURE(ops2wr(peek_ops.storage, peek_ops.entries, &ctx->ctrl.f->peek, ctx->wr2, ctx->sge2));
+		ctx->rollback_id = commit_ops.rollback_id;
+		ctx->peek_op_type = peek_ops.storage->type;
+		ctx->peek_op_data = peek_ops.storage->wr.dword_va.data;
+		ctx->peek_id = peek_ops.peek_id;
+
+		cons_index = peek_ops.storage[1].wr.dword_va.target_va;
+	}
+
+	void peer_exec(int i, xmit_peer_ctx* ctx) {
+		struct ibv_send_wr *bad_wr = NULL;
+		int retries = 256;
+
+		DO(ibv_post_send(peer.queue_pair[i], ctx->wr1, &bad_wr));
+		ASSERT_NO_FATAL_FAILURE(peer.poll(i, 2));
+
+		VERBS_INFO("peer polling... (ci %d)\n", *cons_index);
+		while(--retries) {
+			DO(ibv_post_send(peer.queue_pair[i], ctx->wr2, &bad_wr));
+			ASSERT_NO_FATAL_FAILURE(peer.poll(i, 1));
+			if (ctx->peek_op_type == IBV_PEER_OP_POLL_AND_DWORD) {
+				if (ctx->ctrl.f->peek.owner & ctx->peek_op_data)
+					break;
+			} else if (ctx->peek_op_type == IBV_PEER_OP_POLL_NOR_DWORD) {
+				if (~(ctx->ctrl.f->peek.owner | ctx->peek_op_data))
+					break;
+			} else {
+				ASSERT_TRUE(0) << "unknown type: " << ctx->peek_op_type;
+			}
+		}
+		ASSERT_TRUE(retries);
+	}
+
+	void peer_poll(int i, xmit_peer_ctx* ctx) {
+		struct ibv_send_wr *bad_wr = NULL;
+		DO(ibv_post_send(peer.queue_pair[i], ctx->wr2+1, &bad_wr));
+		ASSERT_NO_FATAL_FAILURE(peer.poll(i, 1));
+		ASSERT_NO_FATAL_FAILURE(this->poll(i, 1));
+	}
+
+	void peer_abort(int i, xmit_peer_ctx* ctx) {
+		struct ibv_peer_abort_peek abort_ops;
+		abort_ops.peek_id = ctx->peek_id;
+		ibv_peer_abort_peek_cq(this->queue[i], &abort_ops);
+		ASSERT_NO_FATAL_FAILURE(this->poll(i, 1));
+	}
+
+	void peer_fail(int i, int flags, xmit_peer_ctx* ctx) {
+		struct ibv_rollback_ctx rb_ctx;
+		rb_ctx.rollback_id = ctx->rollback_id;
+		rb_ctx.flags = flags;
+		DO(ibv_rollback_qp(this->queue_pair[i], &rb_ctx));
+	}
+
+	static uint64_t register_va(void *start, size_t length, uint64_t peer_id) {
+		/* TODO mutex */
+		peer_ctx *ctx = (peer_ctx *)peer_id;
+		peer_mr *reg_h = new peer_mr(*ctx, start, length);
+
+		reg_h->region = ibv_reg_mr(ctx->domain, start, length,
+					IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE);
+		if (!reg_h->region) {
+			EXPECT_TRUE(false) << "ibv_reg_mr on peer memory failed";
+			reg_h->ctx.t.fatality = true;
+		}
+
+		reg_h->ctx.t.mr_list.push_back(reg_h);
+
+		return (uint64_t)reg_h;
+	}
+
+	static void unregister_va(uint64_t registration_id, uint64_t peer_id) {
+		peer_mr *reg_h = (peer_mr *)registration_id;
+		if(ibv_dereg_mr(reg_h->region)) {
+			EXPECT_TRUE(false) << "ibv_dereg_mr on peer memory failed";
+			reg_h->ctx.t.fatality = true;
+		}
+		reg_h->ctx.t.mr_list.remove(reg_h);
+		delete reg_h;
+	}
+
+	static struct ibv_peer_buf * queue_alloc(struct ibv_queue_alloc_attr *attr) {
+		peer_ctx *ctx = (peer_ctx *)attr->peer_id;
+		struct queue_buf *qb = new queue_buf;
+		if (!qb) {
+			ctx->t.fatality = true;
+			return NULL;
+		}
+		qb->pb.addr = mmap(NULL, attr->length, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+		if (qb->pb.addr == MAP_FAILED) {
+			ctx->t.fatality = true;
+			delete qb;
+			return NULL;
+		}
+		qb->pb.comp_mask = 0;
+		qb->length = attr->length;
+		qb->ctx = ctx;
+		VERBS_TRACE("queue_alloc %p[%lx]\n", qb->pb.addr, qb->length);
+		ctx->t.wq_set.insert(qb);
+		return &qb->pb;
+	}
+
+	static void queue_release(struct ibv_peer_buf *pb) {
+		struct queue_buf *qb = (struct queue_buf*)pb;
+		peer_ctx *ctx = qb->ctx;
+		VERBS_TRACE("queue_release %p[%lx]\n", qb->pb.addr, qb->length);
+		munmap(qb->pb.addr, qb->length);
+		if (ctx->t.wq_set.erase(qb) != 1)
+			ctx->t.fatality = true;
+		delete qb;
+	}
+
+	void init_qp(int i) {
+		struct ibv_qp_init_attr_ex qp_attr;
+		struct ibv_create_cq_attr_ex cq_attr;
+		struct ibv_peer_direct_attr pd_attr;
+
+		memset(&qp_attr, 0, sizeof(qp_attr));
+		memset(&cq_attr, 0, sizeof(cq_attr));
+		memset(&pd_attr, 0, sizeof(pd_attr));
+
+		peer_ctx * ctx = new peer_ctx(*this, peer.domain[i^1]);
+
+		pd_attr.peer_id = (uint64_t)ctx;
+		pd_attr.register_va = register_va;
+		pd_attr.unregister_va = unregister_va;
+		pd_attr.queue_alloc = queue_alloc;
+		pd_attr.queue_release = queue_release;
+		pd_attr.caps = IBV_PEER_OP_STORE_DWORD_CAP|IBV_PEER_OP_STORE_QWORD_CAP
+			|IBV_PEER_OP_POLL_AND_DWORD_CAP|IBV_PEER_OP_POLL_NOR_DWORD_CAP;
+
+		qp_attr.comp_mask = IBV_QP_INIT_ATTR_PEER_DIRECT|IBV_QP_INIT_ATTR_PD;
+		qp_attr.qp_type = this->qp_type();
+		qp_attr.sq_sig_all = 1;
+		qp_attr.cap.max_send_wr = 10;
+		qp_attr.cap.max_recv_wr = 10;
+		qp_attr.cap.max_send_sge = 1;
+		qp_attr.cap.max_recv_sge = 1;
+		qp_attr.pd = this->domain[i];
+		qp_attr.peer_direct_attrs = &pd_attr;
+
+		cq_attr.comp_mask = IBV_CREATE_CQ_ATTR_PEER_DIRECT;
+		cq_attr.peer_direct_attrs = &pd_attr;
+		cq_attr.cqe = 1;
+
+		SET(this->channel[i], ibv_create_comp_channel(this->context[i]));
+		SET(this->queue[i], ibv_create_cq_ex_(this->context[i], &cq_attr, 1, this->channel[i]));
+		qp_attr.send_cq = qp_attr.recv_cq = this->queue[i];
+
+		SET(this->region[i], ibv_reg_mr(this->domain[i], this->buff[i], SZ,
+					IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE));
+		SET(this->queue_pair[i], ibv_create_qp_ex(this->context[i], &qp_attr));
+		ASSERT_FALSE(this->fatality);
+	}
+
+	virtual void check_fin(int n) {
+		struct ibv_peer_abort_peek abort_ops;
+		abort_ops.peek_id = n;
+		ibv_peer_abort_peek_cq(this->queue[RECEIVER], &abort_ops);
+		ASSERT_NO_FATAL_FAILURE(this->T::Base::check_fin(n));
+	}
+
+	virtual void SetUp() {
+		ASSERT_NO_FATAL_FAILURE(peer.init());
+		ASSERT_NO_FATAL_FAILURE(this->init());
+
+		VERBS_INFO("connect lid %x-%x qp %x-%x peer %x-%x\n",
+				this->port_attr[SENDER].lid, this->port_attr[RECEIVER].lid,
+				this->queue_pair[SENDER]->qp_num, this->queue_pair[RECEIVER]->qp_num,
+				peer.queue_pair[SENDER]->qp_num, peer.queue_pair[RECEIVER]->qp_num);
+		ASSERT_EQ(4U, wq_set.size());
+		buff_pos = peer.buff[SENDER];
+	}
+
+	virtual void TearDown() {
+		ASSERT_FALSE(HasFailure());
+
+		ASSERT_NO_FATAL_FAILURE(this->fini());
+		ASSERT_EQ(0U, wq_set.size());
+		ASSERT_NO_FATAL_FAILURE(peer.fini());
+	}
+};
+
+TYPED_TEST_CASE(peerdirect_test, ibverbs_env_list);
+
+TYPED_TEST(peerdirect_test, t1_1_send) {
+	ASSERT_NO_FATAL_FAILURE(this->recv(RECEIVER, 0, SZ));
+	ASSERT_NO_FATAL_FAILURE(this->xmit(SENDER, 0, SZ));
+	ASSERT_NO_FATAL_FAILURE(this->xmit_peer(SENDER));
+	ASSERT_NO_FATAL_FAILURE(this->check_fin(1));
 }
 
-TEST_F(peerdirect_test, t2_2_sends) {
+TYPED_TEST(peerdirect_test, t2_2_sends) {
 	xmit_peer_ctx ctx;
-	ASSERT_NO_FATAL_FAILURE(recv(1, 0, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(recv(1, SZ/2, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(xmit(0, 0, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(xmit(0, SZ/2, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(peer_prep(0, 2, &ctx, 1));
-	ASSERT_NO_FATAL_FAILURE(peer_exec(0, 2, &ctx));
+	memset(&ctx, 0, sizeof(ctx));
+	ASSERT_NO_FATAL_FAILURE(this->recv(RECEIVER, 0, SZ/2));
+	ASSERT_NO_FATAL_FAILURE(this->recv(RECEIVER, SZ/2, SZ/2));
+	ASSERT_NO_FATAL_FAILURE(this->xmit(SENDER, 0, SZ/2));
+	ASSERT_NO_FATAL_FAILURE(this->xmit(SENDER, SZ/2, SZ/2));
+	ASSERT_NO_FATAL_FAILURE(this->peer_prep(SENDER, &ctx, 2));
+	ASSERT_NO_FATAL_FAILURE(this->peer_exec(SENDER, &ctx));
+	ASSERT_NO_FATAL_FAILURE(this->peer_poll(SENDER, &ctx));
+	ASSERT_NO_FATAL_FAILURE(this->check_fin(2));
 }
 
-TEST_F(peerdirect_test, t3_2_sends_2_pd) {
-	xmit_peer_ctx ctx1, ctx2;
-	ASSERT_NO_FATAL_FAILURE(xmit(0, 0, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(peer_prep(0, 2, &ctx1));
-	ASSERT_NO_FATAL_FAILURE(xmit(0, SZ/2, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(peer_prep(0, 2, &ctx2));
+TYPED_TEST(peerdirect_test, t3_2_sends_2_pd) {
+	xmit_peer_ctx ctx[2];
+	ASSERT_NO_FATAL_FAILURE(this->xmit_peer_prep(SENDER, RECEIVER, 2, ctx));
 
-	ASSERT_NO_FATAL_FAILURE(recv(1, 0, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(recv(1, SZ/2, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(peer_exec(0, 2, &ctx1));
-	ASSERT_NO_FATAL_FAILURE(peer_exec(0, 2, &ctx2));
+	ASSERT_NO_FATAL_FAILURE(this->peer_exec(SENDER, &ctx[0]));
+	ASSERT_NO_FATAL_FAILURE(this->peer_poll(SENDER, &ctx[0]));
+	ASSERT_NO_FATAL_FAILURE(this->peer_exec(SENDER, &ctx[1]));
+	ASSERT_NO_FATAL_FAILURE(this->peer_poll(SENDER, &ctx[1]));
+	ASSERT_NO_FATAL_FAILURE(this->check_fin(2));
 }
 
-TEST_F(peerdirect_test, t4_rollback) {
-	xmit_peer_ctx ctx1, ctx2;
-	ASSERT_NO_FATAL_FAILURE(xmit(0, 0, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(peer_prep(0, 2, &ctx1));
-	ASSERT_NO_FATAL_FAILURE(xmit(0, SZ/2, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(peer_prep(0, 2, &ctx2));
+TYPED_TEST(peerdirect_test, t4_rollback) {
+	xmit_peer_ctx ctx[2];
+	ASSERT_NO_FATAL_FAILURE(this->xmit_peer_prep(SENDER, RECEIVER, 2, ctx));
 
-	ASSERT_NO_FATAL_FAILURE(recv(1, 0, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(recv(1, SZ/2, SZ/2));
+	ASSERT_NO_FATAL_FAILURE(this->peer_exec(SENDER, &ctx[0]));
+	ASSERT_NO_FATAL_FAILURE(this->peer_fail(SENDER, 0, &ctx[1]));
 
-	ASSERT_NO_FATAL_FAILURE(peer_exec(0, 2, &ctx1));
-	ASSERT_NO_FATAL_FAILURE(peer_fail(0, 0, &ctx2));
+	ASSERT_NO_FATAL_FAILURE(this->xmit(SENDER, SZ/2, SZ/2));
+	ASSERT_NO_FATAL_FAILURE(this->xmit_peer(SENDER));
+	ASSERT_NO_FATAL_FAILURE(this->check_fin(2));
+}
 
-	ASSERT_NO_FATAL_FAILURE(xmit(0, SZ/2, SZ/2));
-	ASSERT_NO_FATAL_FAILURE(xmit_peer(0, 2));
+TYPED_TEST(peerdirect_test, t5_poll_abort) {
+	xmit_peer_ctx ctx[4];
+	ASSERT_NO_FATAL_FAILURE(this->xmit_peer_prep(SENDER, RECEIVER, 4, ctx));
+
+	ASSERT_NO_FATAL_FAILURE(this->peer_exec(SENDER, &ctx[0]));
+	ASSERT_NO_FATAL_FAILURE(this->peer_poll(SENDER, &ctx[0]));
+	ASSERT_NO_FATAL_FAILURE(this->peer_exec(SENDER, &ctx[1]));
+	ASSERT_NO_FATAL_FAILURE(this->peer_abort(SENDER, &ctx[1]));
+	ASSERT_NO_FATAL_FAILURE(this->peer_exec(SENDER, &ctx[2]));
+	ASSERT_NO_FATAL_FAILURE(this->peer_poll(SENDER, &ctx[2]));
+	ASSERT_NO_FATAL_FAILURE(this->peer_exec(SENDER, &ctx[3]));
+	ASSERT_NO_FATAL_FAILURE(this->peer_abort(SENDER, &ctx[3]));
+
+	ASSERT_NO_FATAL_FAILURE(this->check_fin(4));
+}
+
+TYPED_TEST(peerdirect_test, t6_pool_abort_16a) {
+	xmit_peer_ctx ctx[16];
+	ASSERT_NO_FATAL_FAILURE(this->xmit_peer_prep(SENDER, RECEIVER, 16, ctx));
+
+	for (int i = 0; i < 16; i+=2) {
+		ASSERT_NO_FATAL_FAILURE(this->peer_exec(SENDER, &ctx[i]));
+		ASSERT_NO_FATAL_FAILURE(this->peer_poll(SENDER, &ctx[i]));
+		ASSERT_NO_FATAL_FAILURE(this->peer_exec(SENDER, &ctx[i+1]));
+		ASSERT_NO_FATAL_FAILURE(this->peer_abort(SENDER, &ctx[i+1]));
+	}
+
+	ASSERT_NO_FATAL_FAILURE(this->check_fin(16));
+}
+TYPED_TEST(peerdirect_test, t7_pool_abort_16b) {
+	xmit_peer_ctx ctx[16];
+	ASSERT_NO_FATAL_FAILURE(this->xmit_peer_prep(SENDER, RECEIVER, 16, ctx));
+
+	for (int i = 0; i < 16; i+=2) {
+		ASSERT_NO_FATAL_FAILURE(this->peer_exec(SENDER, &ctx[i]));
+		ASSERT_NO_FATAL_FAILURE(this->peer_abort(SENDER, &ctx[i]));
+		ASSERT_NO_FATAL_FAILURE(this->peer_exec(SENDER, &ctx[i+1]));
+		ASSERT_NO_FATAL_FAILURE(this->peer_poll(SENDER, &ctx[i+1]));
+	}
+
+	ASSERT_NO_FATAL_FAILURE(this->check_fin(16));
 }
 
