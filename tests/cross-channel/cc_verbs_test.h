@@ -481,15 +481,15 @@ protected:
 			break;
 		case IBV_WR_RECV_ENABLE:
 		case IBV_WR_SEND_ENABLE:
-			wr.task.wqe_enable.qp = ctx->qp;
-			wr.task.wqe_enable.wqe_count = 0;
+			wr.wr.wqe_enable.qp = ctx->qp;
+			wr.wr.wqe_enable.wqe_count = 0;
 
 			wr.send_flags |=  IBV_SEND_WAIT_EN_LAST;
 			break;
 
 		case IBV_WR_CQE_WAIT:
-			wr.task.cqe_wait.cq = ctx->scq;
-			wr.task.cqe_wait.cq_count = 1;
+			wr.wr.cqe_wait.cq = ctx->scq;
+			wr.wr.cqe_wait.cq_count = 1;
 
 			wr.send_flags |= IBV_SEND_WAIT_EN_LAST;
 			break;

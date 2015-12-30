@@ -50,8 +50,9 @@ ibv_test_SOURCES += \
 			 tests/cross-channel/create_cq.cc \
 			 tests/cross-channel/post_send_en.cc \
 			 tests/cross-channel/post_recv_en.cc \
-			 tests/cross-channel/post_send_wait.cc \
-			 tests/cross-channel/post_task.cc
+			 tests/cross-channel/post_send_wait.cc
+
+#			 tests/cross-channel/post_task.cc
 
 if PEER_DIRECT
 ibv_test_SOURCES +=      tests/peer-direct/loopback.cc
