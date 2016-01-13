@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015      Mellanox Technologies Ltd. All rights reserved.
+ * Copyright (C) 2015-2016 Mellanox Technologies Ltd. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,9 +27,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "cc_verbs_test.h"
-
-class tc_verbs_post_send_wait : public cc_init_verbs_test {};
+#include "cc_classes.h"
 
 #define SEND_POST_COUNT		10
 
@@ -39,7 +37,6 @@ class tc_verbs_post_send_wait : public cc_init_verbs_test {};
  * support Cross-Channel IO Operations
  */
 TEST_F(tc_verbs_post_send_wait, ti_1) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -57,7 +54,6 @@ TEST_F(tc_verbs_post_send_wait, ti_1) {
  * Expected ONE CQE on mcq
  */
 TEST_F(tc_verbs_post_send_wait, ti_2) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 	struct ibv_send_wr wr;
@@ -91,7 +87,6 @@ TEST_F(tc_verbs_post_send_wait, ti_2) {
  * Expected ONE CQE on mcq
  */
 TEST_F(tc_verbs_post_send_wait, ti_3) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -139,7 +134,6 @@ TEST_F(tc_verbs_post_send_wait, ti_3) {
  * Expected NONE CQE on mcq
  */
 TEST_F(tc_verbs_post_send_wait, ti_4) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -187,7 +181,6 @@ TEST_F(tc_verbs_post_send_wait, ti_4) {
  * Expected ONE CQE on mcq
  */
 TEST_F(tc_verbs_post_send_wait, ti_5) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -239,7 +232,6 @@ TEST_F(tc_verbs_post_send_wait, ti_5) {
  * Note: every WAIT generates CQE
  */
 TEST_F(tc_verbs_post_send_wait, ti_6) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -321,7 +313,6 @@ TEST_F(tc_verbs_post_send_wait, ti_6) {
  * Note: internal index is relative previous post and incremented after special WAIT posted
  */
 TEST_F(tc_verbs_post_send_wait, ti_7) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -398,7 +389,6 @@ TEST_F(tc_verbs_post_send_wait, ti_7) {
  * Set cq_count that exceeds SCQ deep
  */
 TEST_F(tc_verbs_post_send_wait, ti_8) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 	int64_t	wrid = 0;

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015      Mellanox Technologies Ltd. All rights reserved.
+ * Copyright (C) 2015-2016 Mellanox Technologies Ltd. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -55,6 +55,7 @@ static INLINE const char* wr_id2str(uint64_t wr_id)
 
 #define MAX_POLL_CQ_TIMEOUT	10000 /* poll CQ timeout in millisec (10 seconds) */
 
+#ifdef HAVE_CROSS_CHANNEL
 /**
  * Base class for Cross-Channel ibverbs test fixtures.
  * Initialize and close ibverbs.
@@ -62,28 +63,15 @@ static INLINE const char* wr_id2str(uint64_t wr_id)
 class cc_base_verbs_test : public verbs_test {
 protected:
 	virtual void SetUp() {
-#ifndef HAVE_CROSS_CHANNEL
-		// Skip this test.
-		// Cross-channel is supported via extended verbs only
-		skip_this_test = true;
-#else
 		int rc = 0;
-		skip_this_test = false;
 		verbs_test::SetUp();
 		device_attr.comp_mask = -1;
 		rc = ibv_query_device_ex(ibv_ctx, NULL, &device_attr);
 		ASSERT_TRUE(!rc);
-#endif //HAVE_CROSS_CHANNEL
-	}
-	virtual void TearDown() {
-		if (!skip_this_test)
-			verbs_test::TearDown();
 	}
 
 protected:
-#ifdef HAVE_CROSS_CHANNEL
 	struct ibv_device_attr_ex device_attr;
-#endif //HAVE_CROSS_CHANNEL
 };
 
 /**
@@ -92,16 +80,11 @@ protected:
 class cc_init_verbs_test : public cc_base_verbs_test {
 protected:
 	virtual void SetUp() {
-		cc_base_verbs_test::SetUp();
-		if (skip_this_test)
-			return;
-
-#ifdef HAVE_CROSS_CHANNEL
 		int rc = 0;
+		cc_base_verbs_test::SetUp();
 		EXPECT_TRUE((device_attr.orig_attr.device_cap_flags & IBV_DEVICE_CROSS_CHANNEL))
-				<< "This class of tests is for Cross-Channel functionality."
-				<< " But device does not support one";
-
+			<< "This class of tests is for Cross-Channel functionality."
+			<< " But device does not support one";
 		ctx = (struct test_context*)malloc(sizeof(struct test_context));
 		ASSERT_TRUE(ctx != NULL);
 
@@ -227,9 +210,7 @@ protected:
 					IBV_QP_MAX_QP_RD_ATOMIC);
 			ASSERT_EQ(rc, EOK);
 		}
-#endif //HAVE_CROSS_CHANNEL
 	}
-#ifdef HAVE_CROSS_CHANNEL
 	void __init_test(int qp_flag = 0, int qp_tx_depth = DEFAULT_DEPTH, int qp_rx_depth = DEFAULT_DEPTH,
 			 int cq_tx_flag = 0, int cq_tx_depth = DEFAULT_DEPTH,
 			 int cq_rx_flag = 0, int cq_rx_depth = DEFAULT_DEPTH) {
@@ -404,10 +385,7 @@ protected:
 			ASSERT_EQ(rc, EOK);
 		}
 	}
-#endif //HAVE_CROSS_CHANNEL
-
 	virtual void TearDown() {
-#ifdef HAVE_CROSS_CHANNEL
 		if (ctx->mqp)
 			ibv_destroy_qp(ctx->mqp);
 		if (ctx->mcq)
@@ -430,12 +408,9 @@ protected:
 		free(ctx->last_result);
 		free(ctx);
 		ctx = NULL;
-#endif //HAVE_CROSS_CHANNEL
-
 		cc_base_verbs_test::TearDown();
 	}
 protected:
-#ifdef HAVE_CROSS_CHANNEL
 	struct test_context *ctx;
 
 	uint16_t get_local_lid(struct ibv_context *context, int port)
@@ -561,6 +536,6 @@ protected:
 						< MAX_POLL_CQ_TIMEOUT));
 		ASSERT_EQ(expected_poll_cq_count, poll_cq_count);
 	}
-#endif //HAVE_CROSS_CHANNEL
 };
+#endif //HAVE_CROSS_CHANNEL
 #endif //_IBVERBS_CC_VERBS_TEST_
