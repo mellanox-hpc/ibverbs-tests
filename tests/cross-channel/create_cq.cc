@@ -95,9 +95,13 @@ TEST_F(tc_verbs_create_cq, ti_1) {
 	__poll_cq(ctx->scq, ctx->cq_tx_depth + 2, ctx->wc, wrid - 1);
 	EXPECT_EQ(IBV_WC_SUCCESS, ctx->wc[wrid - 2].status);
 	EXPECT_EQ((uint64_t)(wrid - 2), ctx->wc[wrid - 2].wr_id);
-
+#if 0
+	/*
+	 * It is closed, because there is no way to limit the number of
+	 * CQE per CQ
+	 */
 	__poll_cq(ctx->rcq, ctx->cq_rx_depth + 2, ctx->wc, wrid - 1);
-
+#endif
 	/* Check result */
 	{
 		struct ibv_async_event event;

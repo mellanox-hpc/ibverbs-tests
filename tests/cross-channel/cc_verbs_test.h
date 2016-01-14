@@ -549,7 +549,7 @@ protected:
 		gettimeofday(&cur_time, NULL);
 		start_time_msec = (cur_time.tv_sec * 1000) + (cur_time.tv_usec / 1000);
 		do {
-			poll_result = ibv_poll_cq(cq, 0x10, wc);
+			poll_result = ibv_poll_cq(cq, num_entries, &wc[poll_cq_count]);
 			ASSERT_TRUE(poll_result >= 0 );
 			poll_cq_count += poll_result;
 
