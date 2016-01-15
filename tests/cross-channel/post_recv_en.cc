@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015      Mellanox Technologies Ltd. All rights reserved.
+ * Copyright (C) 2015-2016 Mellanox Technologies Ltd. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,9 +27,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "cc_verbs_test.h"
-
-class tc_verbs_post_recv_en : public cc_init_verbs_test {};
+#include "cc_classes.h"
 
 #define SEND_POST_COUNT		10
 #define RECV_EN_WR_ID		((uint64_t)'R')
@@ -39,7 +37,6 @@ class tc_verbs_post_recv_en : public cc_init_verbs_test {};
  * w/o IBV_QP_CREATE_MANAGED_RECV
  */
 TEST_F(tc_verbs_post_recv_en, ti_1) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -66,7 +63,6 @@ TEST_F(tc_verbs_post_recv_en, ti_1) {
  * IBV_QP_CREATE_CROSS_CHANNEL | IBV_QP_CREATE_MANAGED_RECV
  */
 TEST_F(tc_verbs_post_recv_en, ti_2) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -91,7 +87,6 @@ TEST_F(tc_verbs_post_recv_en, ti_2) {
  * IBV_QP_CREATE_MANAGED_RECV does not affect to the same QP
  */
 TEST_F(tc_verbs_post_recv_en, ti_3) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -117,7 +112,6 @@ TEST_F(tc_verbs_post_recv_en, ti_3) {
  * sequence SEND-RECV_EN-...
  */
 TEST_F(tc_verbs_post_recv_en, ti_4) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -278,7 +272,6 @@ TEST_F(tc_verbs_post_recv_en, ti_4) {
  * sequence SEND-...-SEND-RECV_EN(all)
  */
 TEST_F(tc_verbs_post_recv_en, ti_5) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -441,7 +434,6 @@ TEST_F(tc_verbs_post_recv_en, ti_5) {
  * Expected THREE CQE on rcq
  */
 TEST_F(tc_verbs_post_recv_en, ti_6) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -606,7 +598,6 @@ TEST_F(tc_verbs_post_recv_en, ti_6) {
  * Note: internal index is relative previous post and incremented after special WAIT posted
  */
 TEST_F(tc_verbs_post_recv_en, ti_7) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 
@@ -797,7 +788,6 @@ TEST_F(tc_verbs_post_recv_en, ti_7) {
  * Note: internal index is relative previous post and incremented after special WAIT posted
  */
 TEST_F(tc_verbs_post_recv_en, ti_8) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 

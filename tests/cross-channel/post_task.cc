@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015      Mellanox Technologies Ltd. All rights reserved.
+ * Copyright (C) 2015-2016 Mellanox Technologies Ltd. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,16 +27,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "cc_verbs_test.h"
-
-class tc_verbs_post_task : public cc_init_verbs_test {};
+#include "cc_classes.h"
 
 #define SEND_POST_COUNT		10
 
 /* verbs_post_task: [TI.1] Correct */
-TEST_F(tc_verbs_post_task, ti_1) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
-#ifdef HAVE_CROSS_CHANNEL
+TEST_F(tc_verbs_post_task, ti_1){
+#ifdef HAVE_CROSS_CHANNEL_TASK
 	int rc = EOK;
 
 	__init_test(IBV_QP_CREATE_CROSS_CHANNEL | IBV_QP_CREATE_MANAGED_SEND);
@@ -138,14 +135,14 @@ TEST_F(tc_verbs_post_task, ti_1) {
 		EXPECT_EQ((uint64_t)1, ctx->wc[1].wr_id);
 		EXPECT_EQ((uint64_t)3, ctx->wc[2].wr_id);
 	}
-#endif //HAVE_CROSS_CHANNEL
+#endif
 }
+
 /* verbs_post_task: [TI.2] Bad case
  * Expected bad_task = task[1]
  */
 TEST_F(tc_verbs_post_task, ti_2) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
-#ifdef HAVE_CROSS_CHANNEL
+#ifdef HAVE_CROSS_CHANNEL_TASK
 	int rc = EOK;
 
 	__init_test();
@@ -211,5 +208,5 @@ TEST_F(tc_verbs_post_task, ti_2) {
 		__poll_cq(ctx->scq, ctx->cq_tx_depth, ctx->wc, SEND_POST_COUNT);
 		__poll_cq(ctx->rcq, ctx->cq_rx_depth, ctx->wc, SEND_POST_COUNT);
 	}
-#endif //HAVE_CROSS_CHANNEL
+#endif
 }

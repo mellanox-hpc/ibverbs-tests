@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015-2016 Mellanox Technologies Ltd. All rights reserved.
+ * Copyright (C) 2016      Mellanox Technologies Ltd. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,26 +26,52 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#ifndef _CHECKS_H
+#define _CHECKS_H
 
-#include "cc_classes.h"
+#include "cc_verbs_test.h"
 
-/* verbs_query_device: [TI.1]
- * Check if ibv_query_device() returns information about Cross-Channel support
- */
-TEST_F(tc_verbs_query_device, ti_1){
 #ifdef HAVE_CROSS_CHANNEL
-	VERBS_INFO("============================================\n");
-	VERBS_INFO("DEVICE     : %s\n", ibv_get_device_name(ibv_dev));
-	VERBS_INFO("           : %s\n", ibv_dev->dev_name);
-	VERBS_INFO("           : %s\n", ibv_dev->dev_path);
-	VERBS_INFO("           : %s\n", ibv_dev->ibdev_path);
-	VERBS_INFO("============================================\n");
-
-	VERBS_INFO("device_attr.device_cap_flags: 0x%x\n",
-			device_attr.orig_attr.device_cap_flags);
-	VERBS_INFO("CROSS_CHANNEL               : %s \n",
-			(device_attr.orig_attr.device_cap_flags & IBV_DEVICE_CROSS_CHANNEL ?
-					"ON" : "OFF"));
-	ASSERT_TRUE(device_attr.orig_attr.device_cap_flags & IBV_DEVICE_CROSS_CHANNEL);
+class tc_verbs_query_device : public cc_base_verbs_test {};
+class tc_verbs_create_cq : public cc_init_verbs_test {};
+class tc_verbs_post_send_en : public cc_init_verbs_test {};
+class tc_verbs_post_recv_en : public cc_init_verbs_test {};
+class tc_verbs_post_send_wait : public cc_init_verbs_test {};
+#else
+class cc_dummy_class : public testing::Test {
+protected:
+	virtual void SetUp() {
+		printf("[  SKIPPED ] Feature cross-channel is not supported\n");
+	}
+};
+class tc_verbs_query_device : public cc_dummy_class {};
+class tc_verbs_create_cq : public cc_dummy_class {};
+class tc_verbs_post_send_en : public cc_dummy_class {};
+class tc_verbs_post_recv_en : public cc_dummy_class {};
+class tc_verbs_post_send_wait : public cc_dummy_class {};
 #endif
-}
+
+#ifdef HAVE_CROSS_CHANNEL_CALC
+/* do nothing */
+#else
+class cc_calc_dummy_class : public testing::Test {
+protected:
+	virtual void SetUp() {
+		printf("[  SKIPPED ] Feature cross-channel CALC is not supported\n");
+	}
+};
+#endif
+
+#ifdef HAVE_CROSS_CHANNEL_TASK
+class tc_verbs_post_task : public cc_init_verbs_test {};
+#else
+class cc_task_dummy_class : public testing::Test {
+protected:
+	virtual void SetUp() {
+		printf("[  SKIPPED ] Feature cross-channel tasks is not supported\n");
+	}
+};
+class tc_verbs_post_task : public cc_task_dummy_class {};
+#endif
+
+#endif //_CHECKS_H
