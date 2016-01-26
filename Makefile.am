@@ -54,7 +54,12 @@ ibv_test_SOURCES += \
 			 tests/cross-channel/post_task.cc
 
 if PEER_DIRECT
-ibv_test_SOURCES +=      tests/peer-direct/loopback.cc
+ibv_test_SOURCES +=      tests/peer-direct/env.h
+ibv_test_SOURCES +=      tests/peer-direct/smoke.cc
+ibv_test_SOURCES +=      tests/peer-direct/bidi.cc
+if PEER_DIRECT_INVALIDATION_TEST
+ibv_test_SOURCES +=      tests/peer-direct/mem.cc
+endif
 endif
 
 EXTRA_DIST = src/gtest-all.cc
