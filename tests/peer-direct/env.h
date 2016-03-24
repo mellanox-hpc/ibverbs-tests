@@ -49,27 +49,28 @@
 #ifdef PEER_DIRECT_EXP
 #include <infiniband/verbs_exp.h>
 
-#define ibv_create_qp_ex		 ibv_exp_create_qp
-
 #define ibv_peer_commit			 ibv_exp_peer_commit
 #define ibv_peer_commit_qp		 ibv_exp_peer_commit_qp
 
+#define ibv_create_qp_ex		 ibv_exp_create_qp
 #define ibv_qp_init_attr_ex		 ibv_exp_qp_init_attr
 #define ibv_create_cq_attr_ex		 ibv_exp_cq_init_attr
 
-#define IBV_QP_INIT_ATTR_PEER_DIRECT	 IBV_EXP_QP_INIT_ATTR_PEER_DIRECT_SYNC
 #define IBV_QP_INIT_ATTR_PD		 IBV_EXP_QP_INIT_ATTR_PD
-#define IBV_CREATE_CQ_ATTR_PEER_DIRECT	 IBV_EXP_CQ_INIT_ATTR_PEER_DIRECT_SYNC
+#define IBV_QP_INIT_ATTR_PEER_DIRECT	 IBV_EXP_QP_INIT_ATTR_PEER_DIRECT
+#define IBV_CREATE_CQ_ATTR_PEER_DIRECT	 IBV_EXP_CQ_INIT_ATTR_PEER_DIRECT
 
 #define IBV_PEER_OP_FENCE		 IBV_EXP_PEER_OP_FENCE
 #define IBV_PEER_OP_STORE_DWORD		 IBV_EXP_PEER_OP_STORE_DWORD
 #define IBV_PEER_OP_STORE_QWORD		 IBV_EXP_PEER_OP_STORE_QWORD
-#define IBV_PEER_OP_COPY_BLOCK		 IBV_EXP_PEER_OP_COPY_BLOCK
-#define IBV_PEER_OP_POLL_EQ_DWORD	 IBV_EXP_PEER_OP_POLL_EQ_DWORD
-
-#define IBV_PEER_OP_POLL_GEQ_DWORD	 IBV_EXP_PEER_OP_POLL_GEQ_DWORD
 #define IBV_PEER_OP_POLL_AND_DWORD	 IBV_EXP_PEER_OP_POLL_AND_DWORD
 #define IBV_PEER_OP_POLL_NOR_DWORD	 IBV_EXP_PEER_OP_POLL_NOR_DWORD
+
+#define IBV_PEER_OP_FENCE_CAP		 IBV_EXP_PEER_OP_FENCE_CAP
+#define IBV_PEER_OP_STORE_DWORD_CAP	 IBV_EXP_PEER_OP_STORE_DWORD_CAP
+#define IBV_PEER_OP_STORE_QWORD_CAP	 IBV_EXP_PEER_OP_STORE_QWORD_CAP
+#define IBV_PEER_OP_POLL_AND_DWORD_CAP	 IBV_EXP_PEER_OP_POLL_AND_DWORD_CAP
+#define IBV_PEER_OP_POLL_NOR_DWORD_CAP	 IBV_EXP_PEER_OP_POLL_NOR_DWORD_CAP
 
 #define IBV_PEER_FENCE_CPU_TO_HCA	 IBV_EXP_PEER_FENCE_CPU_TO_HCA
 #define IBV_PEER_FENCE_PEER_TO_HCA	 IBV_EXP_PEER_FENCE_PEER_TO_HCA
@@ -90,11 +91,14 @@
 #define ibv_peer_abort_peek		 ibv_exp_peer_abort_peek
 #define ibv_peer_abort_peek_cq		 ibv_exp_peer_abort_peek_cq
 
-#define ibv_create_cq_ex_(ctx, attr, n, ch) \
-		ibv_exp_create_cq(ctx, n, NULL, ch, 0, attr)
-
 #define IBV_PEER_DIRECTION_FROM_CPU	 IBV_EXP_PEER_DIRECTION_FROM_CPU
 #define IBV_PEER_DIRECTION_FROM_HCA	 IBV_EXP_PEER_DIRECTION_FROM_HCA
+
+#define ibv_peer_buf			 ibv_exp_peer_buf
+#define ibv_peer_buf_alloc_attr		 ibv_exp_peer_buf_alloc_attr
+
+#define ibv_create_cq_ex_(ctx, attr, n, ch) \
+		ibv_exp_create_cq(ctx, n, NULL, ch, 0, attr)
 
 #else
 
@@ -102,6 +106,7 @@
 		(attr)->cqe = n; \
 		(attr)->channel = ch; \
 		ibv_create_cq_ex(ctx, attr); })
+
 #endif
 
 #include <infiniband/peer_ops.h>
@@ -140,7 +145,7 @@
 #define SENDER 0
 #define RECEIVER 1
 
-#define POLL_RETRIES 128
+#define POLL_RETRIES 2147483
 
 class ibverbs_env {
 public:
@@ -240,10 +245,10 @@ public:
 		attr.sq_sig_all = 1;
 		attr.send_cq = queue[i];
 		attr.recv_cq = queue[i];
-		attr.cap.max_send_wr = 10;
-		attr.cap.max_recv_wr = 10;
-		attr.cap.max_send_sge = 10;
-		attr.cap.max_recv_sge = 10;
+		attr.cap.max_send_wr = 50;
+		attr.cap.max_recv_wr = 50;
+		attr.cap.max_send_sge = 1;
+		attr.cap.max_recv_sge = 1;
 		SET(queue_pair[i], ibv_create_qp(domain[i], &attr));
 	}
 
@@ -261,10 +266,16 @@ public:
 		int i = 0;
 
 		SET(dev_list, ibv_get_device_list(&num_devices));
+
+		if (num_devices == 1) {
+			dev_list[1] = dev_list[0];
+			num_devices++;
+		}
+
 		ASSERT_EQ(PAIR, num_devices);
 
 		for (i=0; i<PAIR; i++) {
-			SET(context[i], ibv_open_device(dev_list[i]));
+			SET(context[i], ibv_open_device(dev_list[i^1]));
 			DO(ibv_query_port(context[i], 1, &port_attr[i]));
 			SET(domain[i], ibv_alloc_pd(context[i]));
 			channel[i] = NULL;
@@ -369,8 +380,8 @@ public:
 
 	virtual void check_fin(int i, int n) {
 		int k;
-		EXEC(poll(i,n));
 
+		EXEC(poll(i,n));
 		for (k = 0; k < SZ; k++)
 			ASSERT_EQ(PATTERN, buff[i][k]) << "k=" << k;
 	}
@@ -429,8 +440,8 @@ public:
 
 	virtual void check_fin(int i, int n) {
 		int k;
-		EXEC(poll(i,n));
 
+		EXEC(poll(i,n));
 		for (k = 0; k < SZ; k++)
 			ASSERT_EQ(PATTERN, buff[i][k]) << "k=" << k;
 	}
@@ -810,7 +821,7 @@ public:
 		return (uint64_t)reg_h;
 	}
 
-	static void unregister_va(uint64_t registration_id, uint64_t peer_id) {
+	static int unregister_va(uint64_t registration_id, uint64_t peer_id) {
 		peer_mr *reg_h = (peer_mr *)registration_id;
 		VERBS_TRACE("unregister_va %p\n", reg_h->region);
 		if(ibv_dereg_mr(reg_h->region)) {
@@ -819,6 +830,7 @@ public:
 		}
 		reg_h->ctx.t.mr_list.remove(reg_h);
 		delete reg_h;
+		return 1;
 	}
 
 	static struct ibv_peer_buf * buf_alloc(struct ibv_peer_buf_alloc_attr *attr) {
@@ -845,7 +857,7 @@ public:
 		return &qb->pb;
 	}
 
-	static void buf_release(struct ibv_peer_buf *pb) {
+	static int buf_release(struct ibv_peer_buf *pb) {
 		struct queue_buf *qb = (struct queue_buf*)pb;
 		peer_ctx *ctx = qb->ctx;
 		VERBS_TRACE("buf_release %p[%lx]\n", qb->pb.addr, qb->length);
@@ -855,12 +867,18 @@ public:
 			ctx->t.fatality = true;
 		}
 		delete qb;
+		return 1;
 	}
 
 	void init_qp(int i) {
 		struct ibv_qp_init_attr_ex qp_attr;
 		struct ibv_create_cq_attr_ex cq_attr;
 		struct ibv_peer_direct_attr pd_attr;
+
+		if (i == RECEIVER) {
+			EXEC(T::Base::init_qp(i));
+			return;
+		}
 
 		fatality = false;
 
@@ -878,7 +896,8 @@ public:
 		pd_attr.caps = IBV_PEER_OP_STORE_DWORD_CAP|IBV_PEER_OP_STORE_QWORD_CAP
 			|IBV_PEER_OP_POLL_AND_DWORD_CAP|IBV_PEER_OP_POLL_NOR_DWORD_CAP;
 
-		qp_attr.comp_mask = IBV_QP_INIT_ATTR_PEER_DIRECT|IBV_QP_INIT_ATTR_PD;
+		qp_attr.comp_mask = IBV_QP_INIT_ATTR_PD
+			|IBV_QP_INIT_ATTR_PEER_DIRECT;
 		qp_attr.qp_type = this->qp_type();
 		qp_attr.sq_sig_all = 1;
 		qp_attr.cap.max_send_wr = 10;
@@ -909,8 +928,8 @@ public:
 				this->port_attr[SENDER].lid, this->port_attr[RECEIVER].lid,
 				this->queue_pair[SENDER]->qp_num, this->queue_pair[RECEIVER]->qp_num,
 				peer.queue_pair[SENDER]->qp_num, peer.queue_pair[RECEIVER]->qp_num);
-		ASSERT_EQ(6U, wq_set.size());
-		ASSERT_EQ(8U, mr_list.size());
+		ASSERT_EQ(3U, wq_set.size());
+		ASSERT_EQ(4U, mr_list.size());
 		buff_pos = peer.buff[SENDER];
 	}
 
