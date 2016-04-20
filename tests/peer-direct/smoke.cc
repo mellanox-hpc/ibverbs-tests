@@ -133,6 +133,8 @@ TYPED_TEST(peerdirect_test, t5_poll_abort) {
 	EXEC(this->check_fin(RECEIVER, 4));
 }
 
+#if 1
+
 TYPED_TEST(peerdirect_test, t6_pool_abort_16a) {
 	xmit_peer_ctx ctx[16];
 	EXEC(this->xmit_peer_prep(SENDER, RECEIVER, 16, ctx));
@@ -159,4 +161,30 @@ TYPED_TEST(peerdirect_test, t7_pool_abort_16b) {
 
 	EXEC(this->check_fin(RECEIVER, 16));
 }
+
+TYPED_TEST(peerdirect_test, t8_pool16) {
+	xmit_peer_ctx ctx[16];
+	EXEC(this->xmit_peer_prep(SENDER, RECEIVER, 16, ctx));
+
+	for (int i = 0; i < 16; i++) {
+		EXEC(this->peer_exec(SENDER, &ctx[i]));
+		EXEC(this->peer_poll(SENDER, &ctx[i]));
+	}
+
+	EXEC(this->check_fin(RECEIVER, 16));
+}
+
+TYPED_TEST(peerdirect_test, t9_abort16) {
+	xmit_peer_ctx ctx[16];
+	EXEC(this->xmit_peer_prep(SENDER, RECEIVER, 16, ctx));
+
+	for (int i = 0; i < 16; i++) {
+		EXEC(this->peer_exec(SENDER, &ctx[i]));
+		EXEC(this->peer_abort(SENDER, &ctx[i]));
+	}
+
+	EXEC(this->check_fin(RECEIVER, 16));
+}
+
+#endif
 

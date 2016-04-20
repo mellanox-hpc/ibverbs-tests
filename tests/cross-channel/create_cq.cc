@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2015      Mellanox Technologies Ltd. All rights reserved.
+ * Copyright (C) 2015-2016 Mellanox Technologies Ltd. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,9 +27,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "cc_verbs_test.h"
-
-class tc_verbs_create_cq : public cc_init_verbs_test {};
+#include "cc_classes.h"
 
 /* tc_verbs_create_cq: [TI.1]
  * Every time you post to the send Q increment a counter.
@@ -40,8 +38,7 @@ class tc_verbs_create_cq : public cc_init_verbs_test {};
  * Q (very important).
  * This test WON'T declare CQ to ignore overrun.
  */
-TEST_F(tc_verbs_create_cq, ti_1) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
+TEST_F(tc_verbs_create_cq, ti_1){
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 	int flags;
@@ -95,9 +92,13 @@ TEST_F(tc_verbs_create_cq, ti_1) {
 	__poll_cq(ctx->scq, ctx->cq_tx_depth + 2, ctx->wc, wrid - 1);
 	EXPECT_EQ(IBV_WC_SUCCESS, ctx->wc[wrid - 2].status);
 	EXPECT_EQ((uint64_t)(wrid - 2), ctx->wc[wrid - 2].wr_id);
-
+#if 0
+	/*
+	 * It is closed, because there is no way to limit the number of
+	 * CQE per CQ
+	 */
 	__poll_cq(ctx->rcq, ctx->cq_rx_depth + 2, ctx->wc, wrid - 1);
-
+#endif
 	/* Check result */
 	{
 		struct ibv_async_event event;
@@ -139,13 +140,13 @@ TEST_F(tc_verbs_create_cq, ti_1) {
 			}
 		}
 	}
-#endif //HAVE_CROSS_CHANNEL
+#endif
 }
+
 /* tc_verbs_create_cq: [TI.2]
  * This test sets CQ TX to ignore overrun
  */
-TEST_F(tc_verbs_create_cq, ti_2) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
+TEST_F(tc_verbs_create_cq, ti_2){
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 	int flags;
@@ -216,14 +217,13 @@ TEST_F(tc_verbs_create_cq, ti_2) {
 		rc = poll(my_pollfd, 2, ms_timeout);
 		EXPECT_EQ(0, rc);
 	}
-#endif //HAVE_CROSS_CHANNEL
+#endif
 }
 
 /* tc_verbs_create_cq: [TI.3]
  * This test sets CQ RX to ignore overrun
  */
-TEST_F(tc_verbs_create_cq, ti_3) {
-	CHECK_TEST_OR_SKIP(Cross-Channel);
+TEST_F(tc_verbs_create_cq, ti_3){
 #ifdef HAVE_CROSS_CHANNEL
 	int rc = EOK;
 	int flags;
@@ -294,5 +294,5 @@ TEST_F(tc_verbs_create_cq, ti_3) {
 		rc = poll(my_pollfd, 2, ms_timeout);
 		EXPECT_EQ(0, rc);
 	}
-#endif //HAVE_CROSS_CHANNEL
+#endif
 }
