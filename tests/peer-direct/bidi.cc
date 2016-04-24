@@ -63,9 +63,10 @@ class bidi_test : public base_test<T> { };
 TYPED_TEST_CASE(bidi_test, ibverbs_env_list);
 
 TYPED_TEST(bidi_test, t0) {
+	CHK_NODE;
 	VERBS_INFO("connect lid %x-%x qp %x-%x\n",
-		this->port_attr[LEFT].lid,
-		this->port_attr[RIGHT].lid,
+		this->lid[LEFT],
+		this->lid[RIGHT],
 		this->queue_pair[LEFT]->qp_num,
 		this->queue_pair[RIGHT]->qp_num);
 

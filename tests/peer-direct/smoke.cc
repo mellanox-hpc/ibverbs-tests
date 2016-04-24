@@ -57,6 +57,7 @@ typedef testing::Types<
 TYPED_TEST_CASE(base_test, ibverbs_env_list);
 
 TYPED_TEST(base_test, t0_no_pd) {
+	CHK_NODE;
 	EXEC(this->setup_buff(SENDER, RECEIVER));
 	EXEC(this->recv(RECEIVER, 0, SZ/2));
 	EXEC(this->xmit(SENDER, 0, SZ/2));
@@ -72,6 +73,7 @@ TYPED_TEST(base_test, t0_no_pd) {
 TYPED_TEST_CASE(peerdirect_test, ibverbs_env_list);
 
 TYPED_TEST(peerdirect_test, t1_1_send) {
+	CHK_NODE;
 	EXEC(this->setup_buff(SENDER, RECEIVER));
 	EXEC(this->recv(RECEIVER, 0, SZ));
 	EXEC(this->xmit(SENDER, 0, SZ));
@@ -80,6 +82,7 @@ TYPED_TEST(peerdirect_test, t1_1_send) {
 }
 
 TYPED_TEST(peerdirect_test, t2_2_sends) {
+	CHK_NODE;
 	xmit_peer_ctx ctx;
 	memset(&ctx, 0, sizeof(ctx));
 	EXEC(this->setup_buff(SENDER, RECEIVER));
@@ -94,6 +97,7 @@ TYPED_TEST(peerdirect_test, t2_2_sends) {
 }
 
 TYPED_TEST(peerdirect_test, t3_2_sends_2_pd) {
+	CHK_NODE;
 	xmit_peer_ctx ctx[2];
 	EXEC(this->xmit_peer_prep(SENDER, RECEIVER, 2, ctx));
 
@@ -105,6 +109,7 @@ TYPED_TEST(peerdirect_test, t3_2_sends_2_pd) {
 }
 
 TYPED_TEST(peerdirect_test, t4_rollback) {
+	CHK_NODE;
 	xmit_peer_ctx ctx[2];
 	EXEC(this->xmit_peer_prep(SENDER, RECEIVER, 2, ctx));
 
@@ -118,6 +123,7 @@ TYPED_TEST(peerdirect_test, t4_rollback) {
 }
 
 TYPED_TEST(peerdirect_test, t5_poll_abort) {
+	CHK_NODE;
 	xmit_peer_ctx ctx[4];
 	EXEC(this->xmit_peer_prep(SENDER, RECEIVER, 4, ctx));
 
@@ -133,9 +139,8 @@ TYPED_TEST(peerdirect_test, t5_poll_abort) {
 	EXEC(this->check_fin(RECEIVER, 4));
 }
 
-#if 1
-
 TYPED_TEST(peerdirect_test, t6_pool_abort_16a) {
+	CHK_NODE;
 	xmit_peer_ctx ctx[16];
 	EXEC(this->xmit_peer_prep(SENDER, RECEIVER, 16, ctx));
 
@@ -149,6 +154,7 @@ TYPED_TEST(peerdirect_test, t6_pool_abort_16a) {
 	EXEC(this->check_fin(RECEIVER, 16));
 }
 TYPED_TEST(peerdirect_test, t7_pool_abort_16b) {
+	CHK_NODE;
 	xmit_peer_ctx ctx[16];
 	EXEC(this->xmit_peer_prep(SENDER, RECEIVER, 16, ctx));
 
@@ -163,6 +169,7 @@ TYPED_TEST(peerdirect_test, t7_pool_abort_16b) {
 }
 
 TYPED_TEST(peerdirect_test, t8_pool16) {
+	CHK_NODE;
 	xmit_peer_ctx ctx[16];
 	EXEC(this->xmit_peer_prep(SENDER, RECEIVER, 16, ctx));
 
@@ -175,6 +182,7 @@ TYPED_TEST(peerdirect_test, t8_pool16) {
 }
 
 TYPED_TEST(peerdirect_test, t9_abort16) {
+	CHK_NODE;
 	xmit_peer_ctx ctx[16];
 	EXEC(this->xmit_peer_prep(SENDER, RECEIVER, 16, ctx));
 
@@ -185,6 +193,4 @@ TYPED_TEST(peerdirect_test, t9_abort16) {
 
 	EXEC(this->check_fin(RECEIVER, 16));
 }
-
-#endif
 

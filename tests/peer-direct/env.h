@@ -139,6 +139,13 @@
 		x = NULL; \
 	} while(0)
 
+#define CHK_NODE \
+	do { \
+		if (this->skip) \
+			return; \
+	} while(0);
+
+
 #define SZ 1024
 #define MAX_WR 8
 
@@ -158,8 +165,8 @@ public:
 		PATTERN = 0x5a,
 	};
 
-	struct ibv_port_attr port_attr[PAIR];
 	struct ibv_context *context[PAIR];
+	uint16_t lid[PAIR];
 	struct ibv_pd *domain[PAIR];
 	struct ibv_cq *queue[PAIR];
 	struct ibv_qp *queue_pair[PAIR];
@@ -169,10 +176,12 @@ public:
 	char buff[PAIR][SZ];
 	char lvl_str[256];
 	int lvl;
+	int skip;
 
 	ibverbs_env() {
 		memset(lvl_str, 0, sizeof(lvl_str));
 		lvl = 0;
+		skip = 0;
 	}
 
 	virtual void poll(int i, int n) {
@@ -262,28 +271,57 @@ public:
 
 	virtual void to_rts(int i) = 0;
 
-	virtual void init() {
+	virtual int init_devices() {
 		int num_devices;
 		struct ibv_device **dev_list = NULL;
-		int i = 0;
+		struct ibv_context *ctx;
+		struct ibv_device_attr dev_attr;
+		struct ibv_port_attr port_attr;
+		int dev, port, port_cnt, i = 0;
 
-		SET(dev_list, ibv_get_device_list(&num_devices));
-
-		if (num_devices == 1) {
-			dev_list[1] = dev_list[0];
-			num_devices++;
+		dev_list = ibv_get_device_list(&num_devices);
+		for (dev = 0; dev < num_devices; dev++) {
+			ctx = ibv_open_device(dev_list[dev]);
+			if (ibv_query_device(ctx, &dev_attr)) {
+				ADD_FAILURE() << "errno " << errno;
+				goto end;
+			}
+			port_cnt = dev_attr.phys_port_cnt;
+			for (port = 1; port <= dev_attr.phys_port_cnt; port++) {
+				if (ibv_query_port(ctx, port, &port_attr)) {
+					ADD_FAILURE() << "errno " << errno;
+					goto end;
+				}
+				if (port_attr.state == IBV_PORT_ACTIVE) {
+					context[i] = ctx;
+					domain[i] = ibv_alloc_pd(ctx);
+					if (!domain[i]) {
+						ADD_FAILURE() << "errno " << errno;
+						goto end;
+					}
+					lid[i] = port_attr.lid;
+					i++;
+					break;
+				}
+			}
+		}
+		if (i == 1) {
+			context[i] = context[0];
+			domain[i] = ibv_alloc_pd(context[i]);
+			lid[i] = lid[0];
 		}
 
-		ASSERT_EQ(PAIR, num_devices);
-
-		for (i=0; i<PAIR; i++) {
-			SET(context[i], ibv_open_device(dev_list[i^1]));
-			DO(ibv_query_port(context[i], 1, &port_attr[i]));
-			SET(domain[i], ibv_alloc_pd(context[i]));
-			channel[i] = NULL;
-		}
-
+end:
 		ibv_free_device_list(dev_list);
+		return i;
+	}
+
+	virtual void init() {
+		if (!init_devices()) {
+			skip = 1;
+			printf("[  SKIPPED ] Device hasn't enough resources\n");
+			return;
+		}
 
 		EXEC(init_qp(SENDER));
 		EXEC(init_qp(RECEIVER));
@@ -310,13 +348,15 @@ public:
 
 	virtual void fini() {
 		int i;
+		CHK_NODE;
 		for (i = 0; i < PAIR; i++) {
 			FREE(queue_pair[i], ibv_destroy_qp);
 			FREE(region[i], ibv_dereg_mr);
 			FREE(queue[i], ibv_destroy_cq);
 			FREE(domain[i], ibv_dealloc_pd);
 			FREE(channel[i], ibv_destroy_comp_channel);
-			FREE(context[i], ibv_close_device);
+			if (i || context[i] != context[1])
+				FREE(context[i], ibv_close_device);
 		}
 	}
 
@@ -344,7 +384,7 @@ public:
 		struct ibv_qp_attr attr;
 		int flags;
 		uint32_t remote_qpn = queue_pair[i^1]->qp_num;
-		uint16_t dlid = port_attr[i^1].lid;
+		uint16_t dlid = lid[i^1];
 
 		memset(&attr, 0, sizeof(attr));
 		attr.qp_state = IBV_QPS_RTR;
@@ -411,7 +451,7 @@ public:
 		struct ibv_qp_attr attr;
 		int flags;
 		uint32_t remote_qpn = queue_pair[i^1]->qp_num;
-		uint16_t dlid = port_attr[i^1].lid;
+		uint16_t dlid = lid[i^1];
 
 		memset(&attr, 0, sizeof(attr));
 		attr.qp_state = IBV_QPS_RTR;
@@ -494,7 +534,7 @@ public:
 	virtual void to_rtr(int i) {
 		struct ibv_qp_attr attr;
 		int flags;
-		uint16_t dlid = port_attr[i^1].lid;
+		uint16_t dlid = lid[i^1];
 
 		memset(&attr, 0, sizeof(attr));
 		attr.qp_state = IBV_QPS_RTR;
@@ -573,6 +613,7 @@ public:
 	}
 
 	virtual void fini() {
+		CHK_NODE;
 		VERBS_TRACE("num_cq_events %d\n", num_cq_events);
 		ibv_ack_cq_events(queue[SENDER], num_cq_events);
 		EXEC(ibverbs_env::fini());
@@ -930,12 +971,18 @@ public:
 		ASSERT_FALSE(this->fatality);
 	}
 
+	virtual int init_devices() {
+		return T::Base::init_devices() == 2 ? 1 : 0;
+
+	}
+
 	virtual void SetUp() {
 		EXEC(peer.init());
 		EXEC(this->init());
+		CHK_NODE;
 
 		VERBS_INFO("connect lid %x-%x qp %x-%x peer %x-%x\n",
-				this->port_attr[SENDER].lid, this->port_attr[RECEIVER].lid,
+				this->lid[SENDER], this->lid[RECEIVER],
 				this->queue_pair[SENDER]->qp_num, this->queue_pair[RECEIVER]->qp_num,
 				peer.queue_pair[SENDER]->qp_num, peer.queue_pair[RECEIVER]->qp_num);
 		if (do_buf_alloc)
@@ -945,6 +992,7 @@ public:
 	}
 
 	virtual void TearDown() {
+		CHK_NODE;
 		ASSERT_FALSE(HasFailure());
 
 		EXEC(this->fini());
