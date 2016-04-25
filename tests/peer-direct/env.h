@@ -166,6 +166,7 @@ public:
 	};
 
 	struct ibv_context *context[PAIR];
+	uint8_t port_num[PAIR];
 	uint16_t lid[PAIR];
 	struct ibv_pd *domain[PAIR];
 	struct ibv_cq *queue[PAIR];
@@ -287,7 +288,7 @@ public:
 				goto end;
 			}
 			port_cnt = dev_attr.phys_port_cnt;
-			for (port = 1; port <= dev_attr.phys_port_cnt; port++) {
+			for (port = 1; port <= port_cnt; port++) {
 				if (ibv_query_port(ctx, port, &port_attr)) {
 					ADD_FAILURE() << "errno " << errno;
 					goto end;
@@ -299,15 +300,19 @@ public:
 						ADD_FAILURE() << "errno " << errno;
 						goto end;
 					}
+					port_num[i] = port;
 					lid[i] = port_attr.lid;
 					i++;
 					break;
 				}
 			}
+			if (i == 2)
+				break;
 		}
 		if (i == 1) {
 			context[i] = context[0];
 			domain[i] = ibv_alloc_pd(context[i]);
+			port_num[i] = port_num[0];
 			lid[i] = lid[0];
 		}
 
@@ -373,7 +378,7 @@ public:
 
 		memset(&attr, 0, sizeof(attr));
 		attr.qp_state = IBV_QPS_INIT;
-		attr.port_num = 1;
+		attr.port_num = port_num[i];
 		attr.pkey_index = 0;
 		attr.qp_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
 		flags = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS;
@@ -397,7 +402,7 @@ public:
 		attr.ah_attr.dlid = dlid;
 		attr.ah_attr.sl = 0;
 		attr.ah_attr.src_path_bits = 0;
-		attr.ah_attr.port_num = 1;
+		attr.ah_attr.port_num = port_num[i^1];
 		flags = IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN |
 			IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER;
 		DO(ibv_modify_qp(queue_pair[i], &attr, flags));
@@ -440,7 +445,7 @@ public:
 
 		memset(&attr, 0, sizeof(attr));
 		attr.qp_state = IBV_QPS_INIT;
-		attr.port_num = 1;
+		attr.port_num = port_num[i];
 		attr.pkey_index = 0;
 		attr.qp_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
 		flags = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS;
@@ -462,7 +467,7 @@ public:
 		attr.ah_attr.dlid = dlid;
 		attr.ah_attr.sl = 0;
 		attr.ah_attr.src_path_bits = 0;
-		attr.ah_attr.port_num = 1;
+		attr.ah_attr.port_num = port_num[i^1];
 		flags = IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN |
 			IBV_QP_RQ_PSN;
 		DO(ibv_modify_qp(queue_pair[i], &attr, flags));
@@ -524,7 +529,7 @@ public:
 
 		memset(&attr, 0, sizeof(attr));
 		attr.qp_state = IBV_QPS_INIT;
-		attr.port_num = 1;
+		attr.port_num = port_num[i];
 		attr.pkey_index = 0;
 		attr.qkey = Q_KEY;
 		flags = IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_QKEY;
@@ -545,7 +550,7 @@ public:
 		attr.ah_attr.dlid = dlid;
 		attr.ah_attr.sl = 0;
 		attr.ah_attr.src_path_bits = 0;
-		attr.ah_attr.port_num = 1;
+		attr.ah_attr.port_num = port_num[i^1];
 		SET(address[i], ibv_create_ah(domain[i], &attr.ah_attr));
 	}
 
