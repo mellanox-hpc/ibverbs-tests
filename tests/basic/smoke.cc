@@ -45,41 +45,88 @@
 
 #include "env.h"
 
-#define LEFT 1
-#define RIGHT 0
+//#define SZ 1024
+#define SZ 128
 
-typedef testing::Types<
-	types<ibverbs_env_rc, nothing>,
-	types<ibverbs_env_rc, ibverbs_event>,
-	types<ibverbs_env_uc, nothing>,
-	types<ibverbs_env_uc, ibverbs_event>,
-	types<ibverbs_env_ud, nothing>,
-	types<ibverbs_env_ud, ibverbs_event>
-> ibverbs_env_list;
+template <typename T1, typename T2, typename T3>
+struct types {
+	typedef T1 QP;
+	typedef T2 MR;
+	typedef T3 CQ;
+};
 
 template <typename T>
-class bidi_test : public base_test<T> { };
+struct base_test : public testing::Test, public ibvt_env {
+	struct ibvt_ctx ctx;
+	struct ibvt_pd pd;
+	struct T::CQ cq;
+	struct T::QP send_qp;
+	struct T::QP recv_qp;
+	struct T::MR src_mr;
+	struct T::MR dst_mr;
 
-TYPED_TEST_CASE(bidi_test, ibverbs_env_list);
+	base_test() :
+		ctx(*this, NULL),
+		pd(*this, ctx),
+		cq(*this, ctx),
+		send_qp(*this, pd, cq),
+		recv_qp(*this, pd, cq),
+		src_mr(*this, pd, SZ),
+		dst_mr(*this, pd, SZ)
+	{ }
 
-TYPED_TEST(bidi_test, t0) {
+	void send(int start, int length) {
+		EXEC(send_qp.send(src_mr, start, length));
+	}
+
+	void recv(int start, int length) {
+		EXEC(recv_qp.recv(dst_mr, start, length));
+	}
+
+	virtual void SetUp() {
+		ASSERT_FALSE(fatality);
+		EXEC(send_qp.init());
+		EXEC(recv_qp.init());
+		EXEC(send_qp.connect(&recv_qp));
+		EXEC(recv_qp.connect(&send_qp));
+		EXEC(src_mr.fill());
+		EXEC(dst_mr.init());
+		EXEC(cq.arm());
+	}
+
+	virtual void TearDown() {
+		ASSERT_FALSE(HasFailure());
+	}
+};
+
+
+typedef testing::Types<
+	types<ibvt_qp_rc, ibvt_mr, ibvt_cq>,
+	types<ibvt_qp_ud, ibvt_mr_ud, ibvt_cq>,
+	types<ibvt_qp_rc, ibvt_mr, ibvt_cq_event>,
+	types<ibvt_qp_ud, ibvt_mr_ud, ibvt_cq_event>
+> ibvt_env_list;
+
+TYPED_TEST_CASE(base_test, ibvt_env_list);
+
+TYPED_TEST(base_test, t0) {
 	CHK_NODE;
-	VERBS_INFO("connect lid %x-%x qp %x-%x\n",
-		this->lid[LEFT],
-		this->lid[RIGHT],
-		this->queue_pair[LEFT]->qp_num,
-		this->queue_pair[RIGHT]->qp_num);
+	EXEC(recv(0, SZ));
+	EXEC(send(0, SZ));
+	EXEC(cq.poll(2));
+	//EXEC(src_mr.dump());
+	//EXEC(dst_mr.dump());
+	EXEC(dst_mr.check());
+}
 
-	EXEC(this->setup_buff(LEFT, RIGHT));
-	EXEC(this->recv(RIGHT, 0, SZ));
-	EXEC(this->xmit(LEFT, 0, SZ));
-	EXEC(this->poll(LEFT, 1));
-	EXEC(this->check_fin(RIGHT, 1));
-
-	EXEC(this->setup_buff(RIGHT, LEFT));
-	EXEC(this->recv(LEFT, 0, SZ));
-	EXEC(this->xmit(RIGHT, 0, SZ));
-	EXEC(this->poll(RIGHT, 1));
-	EXEC(this->check_fin(LEFT, 1));
+TYPED_TEST(base_test, t1) {
+	CHK_NODE;
+	EXEC(recv(0, SZ/2));
+	EXEC(recv(SZ/2, SZ/2));
+	EXEC(send(0, SZ/2));
+	EXEC(cq.poll(2));
+	EXEC(send(SZ/2, SZ/2));
+	EXEC(cq.poll(2));
+	EXEC(dst_mr.check());
 }
 
