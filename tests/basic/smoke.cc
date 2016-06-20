@@ -99,34 +99,51 @@ struct base_test : public testing::Test, public ibvt_env {
 	}
 };
 
-
 typedef testing::Types<
 	types<ibvt_qp_rc, ibvt_mr, ibvt_cq>,
 	types<ibvt_qp_ud, ibvt_mr_ud, ibvt_cq>,
 	types<ibvt_qp_rc, ibvt_mr, ibvt_cq_event>,
 	types<ibvt_qp_ud, ibvt_mr_ud, ibvt_cq_event>
-> ibvt_env_list;
+> base_test_env_list;
 
-TYPED_TEST_CASE(base_test, ibvt_env_list);
+TYPED_TEST_CASE(base_test, base_test_env_list);
 
 TYPED_TEST(base_test, t0) {
-	CHK_NODE;
 	EXEC(recv(0, SZ));
 	EXEC(send(0, SZ));
 	EXEC(cq.poll(2));
-	//EXEC(src_mr.dump());
-	//EXEC(dst_mr.dump());
 	EXEC(dst_mr.check());
 }
 
 TYPED_TEST(base_test, t1) {
-	CHK_NODE;
 	EXEC(recv(0, SZ/2));
 	EXEC(recv(SZ/2, SZ/2));
 	EXEC(send(0, SZ/2));
 	EXEC(cq.poll(2));
 	EXEC(send(SZ/2, SZ/2));
 	EXEC(cq.poll(2));
+	EXEC(dst_mr.check());
+}
+
+template <typename T>
+struct rdma_test : public base_test<T> {};
+
+typedef testing::Types<
+	types<ibvt_qp_rc, ibvt_mr, ibvt_cq>,
+	types<ibvt_qp_rc, ibvt_mr, ibvt_cq_event>
+> rdma_test_env_list;
+
+TYPED_TEST_CASE(rdma_test, rdma_test_env_list);
+
+TYPED_TEST(rdma_test, t0) {
+	EXEC(send_qp.rdma(this->src_mr, this->dst_mr, IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(dst_mr.check());
+}
+
+TYPED_TEST(rdma_test, t1) {
+	EXEC(recv_qp.rdma(this->dst_mr, this->src_mr, IBV_WR_RDMA_READ));
+	EXEC(cq.poll(1));
 	EXEC(dst_mr.check());
 }
 

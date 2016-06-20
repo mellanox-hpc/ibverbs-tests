@@ -85,7 +85,9 @@ struct ibvt_peer: public ibvt_obj {
 		attr.buf_release = buf_release;
 		attr.caps = IBV_PEER_OP_FENCE_CAP |
 			IBV_PEER_OP_STORE_DWORD_CAP | IBV_PEER_OP_STORE_QWORD_CAP |
-			IBV_PEER_OP_POLL_AND_DWORD_CAP | IBV_PEER_OP_POLL_NOR_DWORD_CAP;
+			IBV_PEER_OP_POLL_AND_DWORD_CAP |
+			IBV_PEER_OP_POLL_NOR_DWORD_CAP;
+			//IBV_PEER_OP_POLL_GEQ_DWORD_CAP;
 		attr.comp_mask = IBV_EXP_PEER_DIRECT_VERSION;
 		attr.version = 1;
 	}
@@ -227,7 +229,7 @@ struct ibvt_peer_op : public ibvt_obj {
 		memset(&ctx, 0, sizeof(ctx));
 	}
 
-	~ibvt_peer_op() {
+	virtual ~ibvt_peer_op() {
 		FREE(ibv_dereg_mr, ctrl_mr);
 	}
 
@@ -244,7 +246,8 @@ struct ibvt_peer_op : public ibvt_obj {
 			wr[i].opcode = IBV_WR_RDMA_WRITE;
 			if (op->type == IBV_PEER_OP_STORE_DWORD ||
 					op->type == IBV_PEER_OP_POLL_AND_DWORD ||
-					op->type == IBV_PEER_OP_POLL_NOR_DWORD) {
+					op->type == IBV_PEER_OP_POLL_NOR_DWORD ||
+					op->type == IBV_PEER_OP_POLL_GEQ_DWORD) {
 				reg_h = (ibvt_peer::peer_mr *)op->wr.dword_va.target_id;
 				sge[i].addr = (uintptr_t)ptr;
 				wr[i].wr.rdma.rkey = reg_h->region->rkey;
@@ -297,7 +300,8 @@ struct ibvt_peer_op : public ibvt_obj {
 		struct ibv_peer_peek peek_ops;
 		peek_ops.storage = op_buff[1];
 		peek_ops.entries = MAX_WR;
-		peek_ops.cqe_offset_from_head = offset;
+		peek_ops.whence = IBV_EXP_PEER_PEEK_RELATIVE;
+		peek_ops.offset = offset;
 
 		SET(ctrl_mr, ibv_reg_mr(pd_peer.pd, &ctx.ctrl, sizeof(ctx.ctrl),
 					IBV_ACCESS_LOCAL_WRITE |
@@ -340,6 +344,9 @@ struct ibvt_peer_op : public ibvt_obj {
 					break;
 			} else if (ctx.peek_op_type == IBV_PEER_OP_POLL_NOR_DWORD) {
 				if (~(ctx.ctrl.peek.owner | ctx.peek_op_data))
+					break;
+			} else if (ctx.peek_op_type == IBV_PEER_OP_POLL_GEQ_DWORD) {
+				if ((int32_t)ctx.ctrl.peek.owner >= (int32_t)ctx.peek_op_data)
 					break;
 			} else {
 				FAIL() << "unknown type: " << ctx.peek_op_type;
