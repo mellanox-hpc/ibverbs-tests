@@ -122,6 +122,13 @@
 		this->env.lvl_str[--this->env.lvl] = 0; \
 	} while(0)
 
+#define EXECL(x) do { \
+		VERBS_TRACE("%3d.%p: execute\t%s" #x "\n", __LINE__, this, this->env.lvl_str); \
+		this->env.lvl_str[this->env.lvl++] = ' '; \
+		ASSERT_NO_FATAL_FAILURE(x); \
+		this->env.lvl_str[--this->env.lvl] = 0; \
+	} while(0)
+
 #define DO(x) do { \
 		VERBS_TRACE("%3d.%p: doing\t%s" #x "\n", __LINE__, this, env.lvl_str); \
 		ASSERT_EQ(0, x) << "errno: " << errno; \
