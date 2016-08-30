@@ -494,6 +494,10 @@ struct peerdirect_test : public testing::Test, public ibvt_env {
 	}
 
 	virtual void SetUp() {
+		EXEC(ctx.init());
+		EXEC(ctx_peer.init());
+		if (skip)
+			return;
 		EXEC(qp_peer.init());
 		EXEC(qp_peer.connect(&qp_peer));
 
@@ -507,6 +511,8 @@ struct peerdirect_test : public testing::Test, public ibvt_env {
 	}
 
 	virtual void TearDown() {
+		if (skip)
+			return;
 		ASSERT_FALSE(HasFailure());
 		EXEC(dst_mr.check());
 	}
@@ -523,14 +529,14 @@ typedef testing::Types<
 TYPED_TEST_CASE(peerdirect_test, ibvt_env_list);
 
 TYPED_TEST(peerdirect_test, t1_1_send) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(recv(0, SZ));
 	EXEC(send(0, SZ));
 	EXEC(op(0).xmit_peer());
 }
 
 TYPED_TEST(peerdirect_test, t2_2_sends) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 
 	EXEC(recv(0, SZ/2));
 	EXEC(recv(SZ/2, SZ/2));
@@ -542,7 +548,7 @@ TYPED_TEST(peerdirect_test, t2_2_sends) {
 }
 
 TYPED_TEST(peerdirect_test, t3_2_sends_2_pd) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(2));
 	EXEC(op(0).peer_exec());
 	EXEC(op(0).peer_poll());
@@ -551,7 +557,7 @@ TYPED_TEST(peerdirect_test, t3_2_sends_2_pd) {
 }
 
 TYPED_TEST(peerdirect_test, t4_rollback) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(2));
 
 	EXEC(op(0).peer_exec());
@@ -563,7 +569,7 @@ TYPED_TEST(peerdirect_test, t4_rollback) {
 }
 
 TYPED_TEST(peerdirect_test, t5_poll_abort) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(4));
 
 	EXEC(op(0).peer_exec());
@@ -577,7 +583,7 @@ TYPED_TEST(peerdirect_test, t5_poll_abort) {
 }
 
 TYPED_TEST(peerdirect_test, t6_pool_abort_16a) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(16));
 
 	for (int i = 0; i < 16; i+=2) {
@@ -589,7 +595,7 @@ TYPED_TEST(peerdirect_test, t6_pool_abort_16a) {
 }
 
 TYPED_TEST(peerdirect_test, t7_pool_abort_16b) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(16));
 
 	for (int i = 0; i < 16; i+=2) {
@@ -601,7 +607,7 @@ TYPED_TEST(peerdirect_test, t7_pool_abort_16b) {
 }
 
 TYPED_TEST(peerdirect_test, t8_pool16) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(16));
 
 	for (int i = 0; i < 16; i++) {
@@ -611,7 +617,7 @@ TYPED_TEST(peerdirect_test, t8_pool16) {
 }
 
 TYPED_TEST(peerdirect_test, t9_abort16) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(16));
 
 	for (int i = 0; i < 16; i++) {

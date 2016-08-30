@@ -46,7 +46,7 @@
 
 #include <infiniband/verbs.h>
 
-#ifdef PEER_DIRECT_EXP
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
 #include <infiniband/verbs_exp.h>
 
 #define ibv_peer_commit			 ibv_exp_peer_commit
@@ -101,6 +101,22 @@
 #define ibv_create_cq_ex_(ctx, attr, n, ch) \
 		ibv_exp_create_cq(ctx, n, NULL, ch, 0, attr)
 
+#define	ibv_device_attr_ex ibv_exp_device_attr
+#define ibv_query_device_(ctx, attr, attr2) ({ \
+		int ret = ibv_exp_query_device(ctx, attr); \
+		attr2 = (typeof attr2)(attr); ret ; })
+
+#define IBV_ACCESS_ON_DEMAND		IBV_EXP_ACCESS_ON_DEMAND
+
+#define ibv_reg_mr(p, a, len, access) ({ \
+		struct ibv_exp_reg_mr_in in; \
+		in.pd = p; \
+		in.addr = a; \
+		in.length = len; \
+		in.exp_access = access; \
+		in.comp_mask = 0; \
+		ibv_exp_reg_mr(&in); })
+
 #else
 
 #define ibv_create_cq_attr_ex		 ibv_cq_init_attr_ex
@@ -109,6 +125,10 @@
 		(attr)->cqe = n; \
 		(attr)->channel = ch; \
 		ibv_cq_ex_to_cq(ibv_create_cq_ex(ctx, attr)); })
+
+#define ibv_query_device_(ctx, attr, attr2) ({ \
+		int ret = ibv_query_device_ex(ctx, NULL, attr); \
+		attr2 = &(attr)->orig_attr; ret ; })
 
 #endif
 
@@ -210,6 +230,7 @@ struct ibvt_ctx : public ibvt_obj {
 	struct ibv_context *ctx;
 	ibvt_ctx *other;
 	struct ibv_device *dev;
+	struct ibv_device_attr *dev_attr_orig;
 	struct ibv_device_attr_ex dev_attr;
 	uint8_t port_num;
 	uint16_t lid;
@@ -228,8 +249,9 @@ struct ibvt_ctx : public ibvt_obj {
 			if (other && other->dev == dev_list[dev])
 				continue;
 			SET(ctx, ibv_open_device(dev_list[dev]));
-			DO(ibv_query_device_ex(ctx, NULL, &dev_attr));
-			for (int port = 1; port <= dev_attr.orig_attr.phys_port_cnt; port++) {
+			memset(&dev_attr, 0, sizeof(dev_attr));
+			DO(ibv_query_device_(ctx, &dev_attr, dev_attr_orig));
+			for (int port = 1; port <= dev_attr_orig->phys_port_cnt; port++) {
 				DO(ibv_query_port(ctx, port, &port_attr));
 				if (env.flags & ACTIVE)
 					if (port_attr.state != IBV_PORT_ACTIVE)
@@ -247,7 +269,8 @@ struct ibvt_ctx : public ibvt_obj {
 			}
 		}
 		ibv_free_device_list(dev_list);
-		ASSERT_TRUE(port_num) << "no active ports found";
+		if (!port_num)
+			env.skip = 1;
 	}
 
 	virtual ~ibvt_ctx() {
@@ -325,7 +348,8 @@ struct ibvt_cq_event : public ibvt_cq {
 	struct ibv_comp_channel *channel;
 	int num_cq_events;
 
-	ibvt_cq_event(ibvt_env &e, ibvt_ctx &c) : ibvt_cq(e, c) {}
+	ibvt_cq_event(ibvt_env &e, ibvt_ctx &c) :
+		ibvt_cq(e, c), channel(NULL) {}
 
 	virtual void init() {
 		struct ibv_create_cq_attr_ex attr;
