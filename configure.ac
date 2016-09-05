@@ -100,6 +100,11 @@ AM_CONDITIONAL([PEER_DIRECT], [test x$peerdirect = x1])
 AM_CONDITIONAL([PEER_DIRECT_INVALIDATION_TEST],
     [test x$with_peerdirect_meminval = xyes])
 
+AC_CHECK_DECL([IBV_SRQT_TAG_MATCHING], [tag_matching=1], [], [
+#include <infiniband/verbs.h>
+])
+AM_CONDITIONAL([TAG_MATCHING], [test x$tag_matching = x1])
+
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
 

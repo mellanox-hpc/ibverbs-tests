@@ -53,14 +53,17 @@ ibv_test_SOURCES += \
 			 tests/cross-channel/post_send_wait.cc \
 			 tests/cross-channel/post_task.cc
 
+ibv_test_SOURCES +=      tests/basic/smoke.cc
+
 if PEER_DIRECT
-ibv_test_SOURCES +=      tests/peer-direct/env.h
 ibv_test_SOURCES +=      tests/peer-direct/smoke.cc
-ibv_test_SOURCES +=      tests/peer-direct/bidi.cc
-if PEER_DIRECT_INVALIDATION_TEST
-ibv_test_SOURCES +=      tests/peer-direct/mem.cc
 endif
+
+if TAG_MATCHING
+ibv_test_SOURCES +=	 tests/tag-matching/smoke.cc
 endif
+
+ibv_test_SOURCES +=      tests/odp/smoke.cc
 
 EXTRA_DIST = src/gtest-all.cc
 EXTRA_DIST += autogen.sh
