@@ -85,7 +85,9 @@ struct ibvt_peer: public ibvt_obj {
 		attr.buf_release = buf_release;
 		attr.caps = IBV_PEER_OP_FENCE_CAP |
 			IBV_PEER_OP_STORE_DWORD_CAP | IBV_PEER_OP_STORE_QWORD_CAP |
-			IBV_PEER_OP_POLL_AND_DWORD_CAP | IBV_PEER_OP_POLL_NOR_DWORD_CAP;
+			IBV_PEER_OP_POLL_AND_DWORD_CAP |
+			IBV_PEER_OP_POLL_NOR_DWORD_CAP;
+			//IBV_PEER_OP_POLL_GEQ_DWORD_CAP;
 		attr.comp_mask = IBV_EXP_PEER_DIRECT_VERSION;
 		attr.version = 1;
 	}
@@ -227,7 +229,7 @@ struct ibvt_peer_op : public ibvt_obj {
 		memset(&ctx, 0, sizeof(ctx));
 	}
 
-	~ibvt_peer_op() {
+	virtual ~ibvt_peer_op() {
 		FREE(ibv_dereg_mr, ctrl_mr);
 	}
 
@@ -244,7 +246,8 @@ struct ibvt_peer_op : public ibvt_obj {
 			wr[i].opcode = IBV_WR_RDMA_WRITE;
 			if (op->type == IBV_PEER_OP_STORE_DWORD ||
 					op->type == IBV_PEER_OP_POLL_AND_DWORD ||
-					op->type == IBV_PEER_OP_POLL_NOR_DWORD) {
+					op->type == IBV_PEER_OP_POLL_NOR_DWORD ||
+					op->type == IBV_PEER_OP_POLL_GEQ_DWORD) {
 				reg_h = (ibvt_peer::peer_mr *)op->wr.dword_va.target_id;
 				sge[i].addr = (uintptr_t)ptr;
 				wr[i].wr.rdma.rkey = reg_h->region->rkey;
@@ -297,7 +300,8 @@ struct ibvt_peer_op : public ibvt_obj {
 		struct ibv_peer_peek peek_ops;
 		peek_ops.storage = op_buff[1];
 		peek_ops.entries = MAX_WR;
-		peek_ops.cqe_offset_from_head = offset;
+		peek_ops.whence = IBV_EXP_PEER_PEEK_RELATIVE;
+		peek_ops.offset = offset;
 
 		SET(ctrl_mr, ibv_reg_mr(pd_peer.pd, &ctx.ctrl, sizeof(ctx.ctrl),
 					IBV_ACCESS_LOCAL_WRITE |
@@ -340,6 +344,9 @@ struct ibvt_peer_op : public ibvt_obj {
 					break;
 			} else if (ctx.peek_op_type == IBV_PEER_OP_POLL_NOR_DWORD) {
 				if (~(ctx.ctrl.peek.owner | ctx.peek_op_data))
+					break;
+			} else if (ctx.peek_op_type == IBV_PEER_OP_POLL_GEQ_DWORD) {
+				if ((int32_t)ctx.ctrl.peek.owner >= (int32_t)ctx.peek_op_data)
 					break;
 			} else {
 				FAIL() << "unknown type: " << ctx.peek_op_type;
@@ -487,6 +494,10 @@ struct peerdirect_test : public testing::Test, public ibvt_env {
 	}
 
 	virtual void SetUp() {
+		EXEC(ctx.init());
+		EXEC(ctx_peer.init());
+		if (skip)
+			return;
 		EXEC(qp_peer.init());
 		EXEC(qp_peer.connect(&qp_peer));
 
@@ -500,6 +511,8 @@ struct peerdirect_test : public testing::Test, public ibvt_env {
 	}
 
 	virtual void TearDown() {
+		if (skip)
+			return;
 		ASSERT_FALSE(HasFailure());
 		EXEC(dst_mr.check());
 	}
@@ -516,14 +529,14 @@ typedef testing::Types<
 TYPED_TEST_CASE(peerdirect_test, ibvt_env_list);
 
 TYPED_TEST(peerdirect_test, t1_1_send) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(recv(0, SZ));
 	EXEC(send(0, SZ));
 	EXEC(op(0).xmit_peer());
 }
 
 TYPED_TEST(peerdirect_test, t2_2_sends) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 
 	EXEC(recv(0, SZ/2));
 	EXEC(recv(SZ/2, SZ/2));
@@ -535,7 +548,7 @@ TYPED_TEST(peerdirect_test, t2_2_sends) {
 }
 
 TYPED_TEST(peerdirect_test, t3_2_sends_2_pd) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(2));
 	EXEC(op(0).peer_exec());
 	EXEC(op(0).peer_poll());
@@ -544,7 +557,7 @@ TYPED_TEST(peerdirect_test, t3_2_sends_2_pd) {
 }
 
 TYPED_TEST(peerdirect_test, t4_rollback) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(2));
 
 	EXEC(op(0).peer_exec());
@@ -556,7 +569,7 @@ TYPED_TEST(peerdirect_test, t4_rollback) {
 }
 
 TYPED_TEST(peerdirect_test, t5_poll_abort) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(4));
 
 	EXEC(op(0).peer_exec());
@@ -570,7 +583,7 @@ TYPED_TEST(peerdirect_test, t5_poll_abort) {
 }
 
 TYPED_TEST(peerdirect_test, t6_pool_abort_16a) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(16));
 
 	for (int i = 0; i < 16; i+=2) {
@@ -582,7 +595,7 @@ TYPED_TEST(peerdirect_test, t6_pool_abort_16a) {
 }
 
 TYPED_TEST(peerdirect_test, t7_pool_abort_16b) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(16));
 
 	for (int i = 0; i < 16; i+=2) {
@@ -594,7 +607,7 @@ TYPED_TEST(peerdirect_test, t7_pool_abort_16b) {
 }
 
 TYPED_TEST(peerdirect_test, t8_pool16) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(16));
 
 	for (int i = 0; i < 16; i++) {
@@ -604,7 +617,7 @@ TYPED_TEST(peerdirect_test, t8_pool16) {
 }
 
 TYPED_TEST(peerdirect_test, t9_abort16) {
-	CHK_NODE;
+	CHK_SUT(peer-direct);
 	EXEC(send_peer_prep(16));
 
 	for (int i = 0; i < 16; i++) {

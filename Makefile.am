@@ -63,5 +63,7 @@ if TAG_MATCHING
 ibv_test_SOURCES +=	 tests/tag-matching/smoke.cc
 endif
 
+ibv_test_SOURCES +=      tests/odp/smoke.cc
+
 EXTRA_DIST = src/gtest-all.cc
 EXTRA_DIST += autogen.sh

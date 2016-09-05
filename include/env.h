@@ -46,7 +46,7 @@
 
 #include <infiniband/verbs.h>
 
-#ifdef PEER_DIRECT_EXP
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
 #include <infiniband/verbs_exp.h>
 
 #define ibv_peer_commit			 ibv_exp_peer_commit
@@ -65,6 +65,7 @@
 #define IBV_PEER_OP_STORE_QWORD		 IBV_EXP_PEER_OP_STORE_QWORD
 #define IBV_PEER_OP_POLL_AND_DWORD	 IBV_EXP_PEER_OP_POLL_AND_DWORD
 #define IBV_PEER_OP_POLL_NOR_DWORD	 IBV_EXP_PEER_OP_POLL_NOR_DWORD
+#define IBV_PEER_OP_POLL_GEQ_DWORD	 IBV_EXP_PEER_OP_POLL_NOR_DWORD
 
 #define IBV_PEER_OP_FENCE_CAP		 IBV_EXP_PEER_OP_FENCE_CAP
 #define IBV_PEER_OP_STORE_DWORD_CAP	 IBV_EXP_PEER_OP_STORE_DWORD_CAP
@@ -100,6 +101,22 @@
 #define ibv_create_cq_ex_(ctx, attr, n, ch) \
 		ibv_exp_create_cq(ctx, n, NULL, ch, 0, attr)
 
+#define	ibv_device_attr_ex ibv_exp_device_attr
+#define ibv_query_device_(ctx, attr, attr2) ({ \
+		int ret = ibv_exp_query_device(ctx, attr); \
+		attr2 = (typeof attr2)(attr); ret ; })
+
+#define IBV_ACCESS_ON_DEMAND		IBV_EXP_ACCESS_ON_DEMAND
+
+#define ibv_reg_mr(p, a, len, access) ({ \
+		struct ibv_exp_reg_mr_in in; \
+		in.pd = p; \
+		in.addr = a; \
+		in.length = len; \
+		in.exp_access = access; \
+		in.comp_mask = 0; \
+		ibv_exp_reg_mr(&in); })
+
 #else
 
 #define ibv_create_cq_attr_ex		 ibv_cq_init_attr_ex
@@ -108,6 +125,10 @@
 		(attr)->cqe = n; \
 		(attr)->channel = ch; \
 		ibv_cq_ex_to_cq(ibv_create_cq_ex(ctx, attr)); })
+
+#define ibv_query_device_(ctx, attr, attr2) ({ \
+		int ret = ibv_query_device_ex(ctx, NULL, attr); \
+		attr2 = &(attr)->orig_attr; ret ; })
 
 #endif
 
@@ -118,6 +139,13 @@
 		VERBS_TRACE("%3d.%p: execute\t%s" #x "\n", __LINE__, this, this->env.lvl_str); \
 		this->env.lvl_str[this->env.lvl++] = ' '; \
 		ASSERT_NO_FATAL_FAILURE(this->x); \
+		this->env.lvl_str[--this->env.lvl] = 0; \
+	} while(0)
+
+#define EXECL(x) do { \
+		VERBS_TRACE("%3d.%p: execute\t%s" #x "\n", __LINE__, this, this->env.lvl_str); \
+		this->env.lvl_str[this->env.lvl++] = ' '; \
+		ASSERT_NO_FATAL_FAILURE(x); \
 		this->env.lvl_str[--this->env.lvl] = 0; \
 	} while(0)
 
@@ -132,9 +160,10 @@
 		ASSERT_TRUE(x) << #y << " errno: " << errno; \
 	} while(0)
 
-#define CHK_NODE \
+#define CHK_SUT(FEATURE_NAME) \
 	do { \
 		if (this->skip) \
+			std::cout << "[  SKIPPED ] Feature " << #FEATURE_NAME << " is not supported" << std::endl;\
 			return; \
 	} while(0);
 
@@ -201,7 +230,8 @@ struct ibvt_ctx : public ibvt_obj {
 	struct ibv_context *ctx;
 	ibvt_ctx *other;
 	struct ibv_device *dev;
-	struct ibv_device_attr dev_attr;
+	struct ibv_device_attr *dev_attr_orig;
+	struct ibv_device_attr_ex dev_attr;
 	uint8_t port_num;
 	uint16_t lid;
 
@@ -219,8 +249,9 @@ struct ibvt_ctx : public ibvt_obj {
 			if (other && other->dev == dev_list[dev])
 				continue;
 			SET(ctx, ibv_open_device(dev_list[dev]));
-			DO(ibv_query_device(ctx, &dev_attr));
-			for (int port = 1; port <= dev_attr.phys_port_cnt; port++) {
+			memset(&dev_attr, 0, sizeof(dev_attr));
+			DO(ibv_query_device_(ctx, &dev_attr, dev_attr_orig));
+			for (int port = 1; port <= dev_attr_orig->phys_port_cnt; port++) {
 				DO(ibv_query_port(ctx, port, &port_attr));
 				if (env.flags & ACTIVE)
 					if (port_attr.state != IBV_PORT_ACTIVE)
@@ -238,7 +269,8 @@ struct ibvt_ctx : public ibvt_obj {
 			}
 		}
 		ibv_free_device_list(dev_list);
-		ASSERT_TRUE(port_num) << "no active ports found";
+		if (!port_num)
+			env.skip = 1;
 	}
 
 	virtual ~ibvt_ctx() {
@@ -316,7 +348,8 @@ struct ibvt_cq_event : public ibvt_cq {
 	struct ibv_comp_channel *channel;
 	int num_cq_events;
 
-	ibvt_cq_event(ibvt_env &e, ibvt_ctx &c) : ibvt_cq(e, c) {}
+	ibvt_cq_event(ibvt_env &e, ibvt_ctx &c) :
+		ibvt_cq(e, c), channel(NULL) {}
 
 	virtual void init() {
 		struct ibv_create_cq_attr_ex attr;
@@ -356,10 +389,15 @@ struct ibvt_cq_event : public ibvt_cq {
 struct ibvt_mr : public ibvt_obj {
 	struct ibv_mr *mr;
 	ibvt_pd &pd;
-	char *buff;
 	size_t size;
+	char *buff;
 
-	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s) : ibvt_obj(e), mr(NULL), pd(p), size(s) {}
+	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s) :
+		ibvt_obj(e),
+		mr(NULL),
+		pd(p),
+		size(s),
+		buff(NULL) {}
 
 	virtual void init() {
 		if (mr)
@@ -404,6 +442,8 @@ struct ibvt_mr : public ibvt_obj {
 
 		return ret;
 	}
+
+	virtual struct ibv_sge sge() { return sge(0, size); }
 };
 
 struct ibvt_mr_hdr : public ibvt_mr {
@@ -492,6 +532,26 @@ struct ibvt_qp : public ibvt_obj {
 		wr.num_sge = 1;
 		wr.opcode = opcode;
 		wr.send_flags = IBV_SEND_SIGNALED;
+		DO(ibv_post_send(qp, &wr, &bad_wr));
+	}
+
+	virtual void rdma(ibvt_mr &src_mr, ibvt_mr &dst_mr, enum ibv_wr_opcode opcode) {
+		struct ibv_sge src_sge = src_mr.sge();
+		struct ibv_sge dst_sge = dst_mr.sge();
+		struct ibv_send_wr wr;
+		struct ibv_send_wr *bad_wr = NULL;
+
+		memset(&wr, 0, sizeof(wr));
+		wr.next = NULL;
+		wr.wr_id = 0;
+		wr.sg_list = &src_sge;
+		wr.num_sge = 1;
+		wr.opcode = opcode;
+		wr.send_flags = IBV_SEND_SIGNALED;
+
+		wr.wr.rdma.remote_addr = dst_sge.addr;
+		wr.wr.rdma.rkey = dst_sge.lkey;
+
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 

@@ -55,7 +55,7 @@ struct ibvt_srq : public ibvt_obj {
 	ibvt_cq &cq;
 
 	ibvt_srq(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) :
-		 ibvt_obj(e), pd(p), cq(c) {}
+		 ibvt_obj(e), srq(NULL), pd(p), cq(c) {}
 
 	~ibvt_srq() {
 		FREE(ibv_destroy_srq, srq);
@@ -76,7 +76,7 @@ struct ibvt_srq : public ibvt_obj {
 		attr.pd = pd.pd;
 		attr.cq = cq.cq;
 		attr.tm_list_size = 16;
-		attr.attr.max_wr  = 16;
+		attr.attr.max_wr  = 64;
 		attr.attr.max_sge = 1;
 
 		SET(srq, ibv_create_srq_ex(pd.ctx.ctx, &attr));
@@ -230,7 +230,11 @@ struct tag_matching : public testing::Test, public ibvt_env {
 	}
 
 	virtual void SetUp() {
-		ASSERT_FALSE(fatality);
+		EXEC(ctx.init());
+		if (!ctx.dev_attr.tm_caps.max_xrq) {
+			skip = 1;
+			return;
+		}
 		EXEC(srq.init());
 		EXEC(ctrl_qp.init());
 		EXEC(ctrl_qp.connect(&ctrl_qp));
@@ -240,6 +244,8 @@ struct tag_matching : public testing::Test, public ibvt_env {
 		EXEC(recv_qp.connect(&send_qp));
 		EXEC(src_mr.fill());
 		EXEC(dst_mr.init());
+		for(int i = 0; i<32; i++)
+			EXEC(recv(0, SZ));
 	}
 
 	virtual void TearDown() {
@@ -248,14 +254,14 @@ struct tag_matching : public testing::Test, public ibvt_env {
 };
 
 TEST_F(tag_matching, e0_unexp) {
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 	EXEC(recv(0, SZ));
 	EXEC(eager(0x10, SZ-0x10, 0x12345));
 	EXEC(dst_mr.check());
 }
 
 TEST_F(tag_matching, e1_match) {
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 	EXEC(append(0, SZ, 1));
 	EXEC(eager(0, SZ, 1));
 	EXEC(dst_mr.check());
@@ -266,7 +272,7 @@ TEST_F(tag_matching, e1_match) {
 
 TEST_F(tag_matching, e2_matchN) {
 	int i;
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 	for (i=0; i<N; i++)
 		EXEC(append(SZ/N*i, SZ/N, i));
 	for (i=0; i<N; i++)
@@ -276,7 +282,7 @@ TEST_F(tag_matching, e2_matchN) {
 
 TEST_F(tag_matching, e3_remove) {
 	int i3, i4;
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 	EXEC(append(0, SZ/2, 3, &i3));
 	EXEC(append(0, SZ/2, 1));
 	EXEC(remove(i3));
@@ -289,7 +295,7 @@ TEST_F(tag_matching, e3_remove) {
 }
 
 TEST_F(tag_matching, e4_repeat) {
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 
 	EXEC(recv(0, SZ));
 	EXEC(eager(0x10, SZ-0x10, 5));
@@ -318,7 +324,7 @@ TEST_F(tag_matching, e4_repeat) {
 
 TEST_F(tag_matching, e5_mix) {
 	int i, idx[N], j, s;
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 
 	for (j=0; j<R; j++) {
 		s = j&1;
@@ -343,7 +349,7 @@ TEST_F(tag_matching, e5_mix) {
 TEST_F(tag_matching, e6_unexp_inline) {
 	ibvt_mr src(*this, this->pd, 0x20),
 		dst(*this, this->pd, 0x20);
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 
 	src.fill();
 	dst.init();
@@ -356,7 +362,7 @@ TEST_F(tag_matching, e6_unexp_inline) {
 }
 
 TEST_F(tag_matching, e7_no_tag) {
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 	EXEC(recv(0, SZ));
 	EXEC(send_qp.send(src_mr, 0x10, SZ-0x10, 0,
 			  IBV_WR_TAG_SEND_NO_TAG));
@@ -370,7 +376,7 @@ TEST_F(tag_matching, e7_no_tag) {
 
 TEST_F(tag_matching, e8_unexp_long) {
 	int i;
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 	for(i = 0; i < N; i++) {
 		EXEC(recv(SZ / N * i, SZ / N));
 		EXEC(eager(SZ / N * i + 0x10,
@@ -385,7 +391,7 @@ TEST_F(tag_matching, r0_unexp) {
 	ibvt_mr src(*this, this->pd, 0x80),
 		dst(*this, this->pd, 0x80);
 
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 
 	src.fill();
 	dst.init();
@@ -398,7 +404,7 @@ TEST_F(tag_matching, r0_unexp) {
 }
 
 TEST_F(tag_matching, r1_match) {
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 	EXEC(append(0, SZ, 1));
 	EXEC(rndv(0, SZ, 1));
 	EXEC(dst_mr.check());
@@ -406,7 +412,7 @@ TEST_F(tag_matching, r1_match) {
 }
 
 TEST_F(tag_matching, r2_match2) {
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 	EXEC(append(0, SZ/2, 1));
 	EXEC(append(SZ/2, SZ/2, 2));
 	EXEC(rndv(SZ/2, SZ/2, 2));
@@ -416,7 +422,7 @@ TEST_F(tag_matching, r2_match2) {
 
 TEST_F(tag_matching, r3_remove) {
 	int i3, i4;
-	CHK_NODE;
+	CHK_SUT(tag-matching);
 	EXEC(append(0, SZ/2, 3, &i3));
 	EXEC(append(0, SZ/2, 1));
 	EXEC(remove(i3));
