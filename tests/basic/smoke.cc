@@ -84,7 +84,9 @@ struct base_test : public testing::Test, public ibvt_env {
 	}
 
 	virtual void SetUp() {
-		ASSERT_FALSE(fatality);
+		EXEC(ctx.init());
+		if (skip)
+			return;
 		EXEC(send_qp.init());
 		EXEC(recv_qp.init());
 		EXEC(send_qp.connect(&recv_qp));
@@ -109,6 +111,7 @@ typedef testing::Types<
 TYPED_TEST_CASE(base_test, base_test_env_list);
 
 TYPED_TEST(base_test, t0) {
+	CHK_SUT(basic);
 	EXEC(recv(0, SZ));
 	EXEC(send(0, SZ));
 	EXEC(cq.poll(2));
@@ -116,6 +119,7 @@ TYPED_TEST(base_test, t0) {
 }
 
 TYPED_TEST(base_test, t1) {
+	CHK_SUT(basic);
 	EXEC(recv(0, SZ/2));
 	EXEC(recv(SZ/2, SZ/2));
 	EXEC(send(0, SZ/2));
@@ -136,12 +140,14 @@ typedef testing::Types<
 TYPED_TEST_CASE(rdma_test, rdma_test_env_list);
 
 TYPED_TEST(rdma_test, t0) {
+	CHK_SUT(basic);
 	EXEC(send_qp.rdma(this->src_mr, this->dst_mr, IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll(1));
 	EXEC(dst_mr.check());
 }
 
 TYPED_TEST(rdma_test, t1) {
+	CHK_SUT(basic);
 	EXEC(recv_qp.rdma(this->dst_mr, this->src_mr, IBV_WR_RDMA_READ));
 	EXEC(cq.poll(1));
 	EXEC(dst_mr.check());
