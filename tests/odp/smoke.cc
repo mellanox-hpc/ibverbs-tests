@@ -55,8 +55,11 @@ struct ibvt_mr_implicit : public ibvt_mr {
 
 	virtual void init() {
 		EXEC(pd.init());
-		SET(mr, ibv_reg_mr(pd.pd, 0, UINT64_MAX, IBV_ACCESS_ON_DEMAND | access_flags));
-		VERBS_TRACE("\t\t\t\t\tibv_reg_mr(pd, 0, 0, %x) = %x\n", access_flags, mr->lkey);
+		mr = ibv_reg_mr(pd.pd, 0, UINT64_MAX, IBV_ACCESS_ON_DEMAND | access_flags);
+		if (!mr)
+			env.skip = 1;
+		else
+			VERBS_TRACE("\t\t\t\t\tibv_reg_mr(pd, 0, 0, %x) = %x\n", access_flags, mr->lkey);
 	}
 };
 
@@ -112,6 +115,9 @@ struct odp_base : public testing::Test, public ibvt_env {
 	virtual void test(unsigned long src, unsigned long dst, size_t len) = 0;
 
 	virtual void SetUp() {
+		EXEC(ctx.init());
+		if (skip)
+			return;
 		EXEC(src.init());
 		EXEC(dst.init());
 		EXEC(src.qp.connect(&dst.qp));
@@ -192,18 +198,21 @@ typedef testing::Types<
 TYPED_TEST_CASE(odp, odp_env_list);
 
 TYPED_TEST(odp, t0) {
+	CHK_SUT(odp);
 	EXEC(test((1ULL<<(32+1))-0x1000,
 		  (1ULL<<(32+2))-0x1000,
 		  0x2000));
 }
 
 TYPED_TEST(odp, t1) {
+	CHK_SUT(odp);
 	EXEC(test((1ULL<<47) - 0x10000 * 1,
 		  (1ULL<<47) - 0x10000 * 2,
 		  0x2000));
 }
 
 TYPED_TEST(odp, t2) {
+	CHK_SUT(odp);
 	unsigned long p = 0x2000000000-0x1000;
 	for (int i = 0; i < 20; i++) {
 		EXEC(test(p, p+0x1000, 0x1000));

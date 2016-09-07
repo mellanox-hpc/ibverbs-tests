@@ -212,7 +212,7 @@ struct ibvt_env {
 		lvl(0),
 		skip(0),
 		fatality(0),
-		flags(0)
+		flags(ACTIVE)
 	{
 		memset(lvl_str, 0, sizeof(lvl_str));
 	}
@@ -266,6 +266,7 @@ struct ibvt_ctx : public ibvt_obj {
 				break;
 			} else {
 				DO(ibv_close_device(ctx));
+				ctx = NULL;
 			}
 		}
 		ibv_free_device_list(dev_list);
