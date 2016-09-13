@@ -17696,6 +17696,11 @@ class GTEST_API_ TestInfo {
   // Returns the result of the test.
   const TestResult* result() const { return &result_; }
 
+  void runtime_skip() {
+	  is_disabled_ = true;
+	  should_run_ = false;
+  }
+
  private:
 
 #if GTEST_HAS_DEATH_TEST
@@ -18137,6 +18142,8 @@ class GTEST_API_ UnitTest {
   // Returns the TestInfo object for the test that's currently running,
   // or NULL if no test is running.
   const TestInfo* current_test_info() const;
+
+  void runtime_skip();
 
   // Returns the random seed used at the start of the current test run.
   int random_seed() const;

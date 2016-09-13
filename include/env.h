@@ -43,6 +43,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <linux/limits.h>
 
 #include <infiniband/verbs.h>
 
@@ -142,6 +143,15 @@
 		this->env.lvl_str[--this->env.lvl] = 0; \
 	} while(0)
 
+#define INIT(x) do { \
+		if (!this->env.skip) { \
+			VERBS_TRACE("%3d.%p: initialize\t%s" #x "\n", __LINE__, this, this->env.lvl_str); \
+			this->env.lvl_str[this->env.lvl++] = ' '; \
+			EXPECT_NO_FATAL_FAILURE(this->x); \
+			this->env.lvl_str[--this->env.lvl] = 0; \
+		} \
+	} while(0)
+
 #define EXECL(x) do { \
 		VERBS_TRACE("%3d.%p: execute\t%s" #x "\n", __LINE__, this, this->env.lvl_str); \
 		this->env.lvl_str[this->env.lvl++] = ' '; \
@@ -157,14 +167,22 @@
 #define SET(x,y) do { \
 		VERBS_TRACE("%3d.%p: doing\t%s" #y "\n", __LINE__, this, env.lvl_str); \
 		x=y; \
-		ASSERT_TRUE(x) << #y << " errno: " << errno; \
+		if (this->env.run) \
+			ASSERT_TRUE(x) << #y << " errno: " << errno; \
+		else if (!x) { \
+			VERBS_TRACE("%3d.%p: failed\t%s" #y " - skipping test\n", __LINE__, this, env.lvl_str); \
+			this->env.skip = 1; \
+		} \
 	} while(0)
 
 #define CHK_SUT(FEATURE_NAME) \
 	do { \
-		if (this->skip) \
-			std::cout << "[  SKIPPED ] Feature " << #FEATURE_NAME << " is not supported" << std::endl;\
+		if (this->skip) { \
+			std::cout << "[  SKIPPED ] Feature " << #FEATURE_NAME << " lacks resources to be tests" << std::endl; \
+			::testing::UnitTest::GetInstance()->runtime_skip(); \
 			return; \
+		} \
+		this->run = 1; \
 	} while(0);
 
 #define FREE(x,y) do { \
@@ -178,7 +196,7 @@
 		} \
 	} while(0)
 
-#define POLL_RETRIES 1600000
+#define POLL_RETRIES 16000000
 
 #define ACTIVE (1 << 0)
 
@@ -206,13 +224,15 @@ struct ibvt_env {
 	int skip;
 	int fatality;
 	int flags;
+	int run;
 
 	ibvt_env() :
 		env(*this),
 		lvl(0),
 		skip(0),
 		fatality(0),
-		flags(ACTIVE)
+		flags(ACTIVE),
+		run(0)
 	{
 		memset(lvl_str, 0, sizeof(lvl_str));
 	}
@@ -234,8 +254,54 @@ struct ibvt_ctx : public ibvt_obj {
 	struct ibv_device_attr_ex dev_attr;
 	uint8_t port_num;
 	uint16_t lid;
+	char *pdev_name;
 
-	ibvt_ctx(ibvt_env &e, ibvt_ctx *o) : ibvt_obj(e), ctx(NULL), other(o), port_num(0) {}
+	ibvt_ctx(ibvt_env &e, ibvt_ctx *o) :
+		ibvt_obj(e),
+		ctx(NULL),
+		other(o),
+		port_num(0),
+		pdev_name(NULL) {}
+
+	void init_debugfs() {
+		char path[PATH_MAX];
+		char pdev[PATH_MAX], *p = pdev, *tok;
+		struct stat st;
+
+		sprintf(path, "/sys/class/infiniband/%s", ibv_get_device_name(dev));
+		readlink(path, pdev, PATH_MAX);
+		while ((tok = strsep(&p, "/"))) {
+			if (tok[0] == '.')
+				continue;
+			sprintf(path, "/sys/kernel/debug/mlx5/%s", tok);
+			if (stat(path, &st) == 0) {
+				pdev_name = strdup(tok);
+				return;
+			}
+		}
+	}
+
+	void check_debugfs(const char* var, int val) {
+		char path[PATH_MAX];
+		char buff[PATH_MAX];
+		int fd;
+
+		if (!pdev_name)
+			return;
+
+		sprintf(path, "/sys/kernel/debug/mlx5/%s/%s", pdev_name, var);
+		fd = open(path, O_RDONLY);
+
+		if (fd < 0)
+			return;
+		read(fd, buff, sizeof(buff));
+		close(fd);
+
+		VERBS_TRACE("%3d.%p: debugfs\t%s %s = %s\n", __LINE__,
+			    this, env.lvl_str, var, buff);
+		ASSERT_EQ(val, atoi(buff)) << var;
+	}
+
 
 	virtual void init() {
 		struct ibv_port_attr port_attr;
@@ -350,7 +416,7 @@ struct ibvt_cq_event : public ibvt_cq {
 	int num_cq_events;
 
 	ibvt_cq_event(ibvt_env &e, ibvt_ctx &c) :
-		ibvt_cq(e, c), channel(NULL) {}
+		ibvt_cq(e, c), channel(NULL), num_cq_events(0) {}
 
 	virtual void init() {
 		struct ibv_create_cq_attr_ex attr;

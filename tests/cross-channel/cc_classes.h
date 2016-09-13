@@ -42,6 +42,7 @@ class cc_dummy_class : public testing::Test {
 protected:
 	virtual void SetUp() {
 		printf("[  SKIPPED ] Feature cross-channel is not supported\n");
+		::testing::UnitTest::GetInstance()->runtime_skip();
 	}
 };
 class tc_verbs_query_device : public cc_dummy_class {};
@@ -58,6 +59,7 @@ class cc_calc_dummy_class : public testing::Test {
 protected:
 	virtual void SetUp() {
 		printf("[  SKIPPED ] Feature cross-channel CALC is not supported\n");
+		::testing::UnitTest::GetInstance()->runtime_skip();
 	}
 };
 #endif
@@ -69,6 +71,7 @@ class cc_task_dummy_class : public testing::Test {
 protected:
 	virtual void SetUp() {
 		printf("[  SKIPPED ] Feature cross-channel tasks is not supported\n");
+		::testing::UnitTest::GetInstance()->runtime_skip();
 	}
 };
 class tc_verbs_post_task : public cc_task_dummy_class {};
