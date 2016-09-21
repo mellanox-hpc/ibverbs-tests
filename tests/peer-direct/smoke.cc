@@ -111,7 +111,7 @@ struct ibvt_peer: public ibvt_obj {
 		qb->pb.addr = mmap(NULL, attr->length, PROT_READ|PROT_WRITE,
 				   MAP_SHARED|MAP_ANONYMOUS, -1, 0);
 		if (qb->pb.addr == MAP_FAILED) {
-			EXPECT_TRUE(false) << "mmap failed errno " << errno;
+			VERBS_INFO("mmap failed errno %d\n", errno);
 			ctx->env.fatality = true;
 			delete qb;
 			return NULL;
@@ -131,7 +131,7 @@ struct ibvt_peer: public ibvt_obj {
 		VERBS_TRACE("buf_release %p[%lx]\n", qb->pb.addr, qb->length);
 		munmap(qb->pb.addr, qb->length);
 		if (ctx->wq_set.erase(qb) != 1) {
-			EXPECT_TRUE(false) << "unexpected qb";
+			VERBS_TRACE("unexpected qb\n");
 			ctx->env.fatality = true;
 		}
 		delete qb;
@@ -150,7 +150,7 @@ struct ibvt_peer: public ibvt_obj {
 					IBV_ACCESS_REMOTE_WRITE);
 		VERBS_TRACE("register_va %p [%lx] %p\n", start, length, reg_h->region);
 		if (!reg_h->region) {
-			EXPECT_TRUE(false) << "ibv_reg_mr on peer memory failed";
+			VERBS_TRACE("ibv_reg_mr on peer memory failed\n");
 			reg_h->ctx.env.fatality = true;
 			return 0;
 		}
@@ -164,7 +164,7 @@ struct ibvt_peer: public ibvt_obj {
 		peer_mr *reg_h = (peer_mr *)registration_id;
 		VERBS_TRACE("unregister_va %p\n", reg_h->region);
 		if(ibv_dereg_mr(reg_h->region)) {
-			EXPECT_TRUE(false) << "ibv_dereg_mr on peer memory failed";
+			VERBS_TRACE("ibv_dereg_mr on peer memory failed\n");
 			reg_h->ctx.env.fatality = true;
 		}
 		reg_h->ctx.mr_list.remove(reg_h);
@@ -242,7 +242,6 @@ struct ibvt_peer_op : public ibvt_obj {
 		memset(wr, 0, MAX_WR*sizeof(*wr));
 		memset(sge, 0, MAX_WR*sizeof(*sge));
 		for(; op; op = op->next) {
-			printf("op %d %p %d\n", i, op, op->type);
 			wr[i].opcode = IBV_WR_RDMA_WRITE;
 			if (op->type == IBV_PEER_OP_STORE_DWORD ||
 					op->type == IBV_PEER_OP_POLL_AND_DWORD ||
@@ -494,20 +493,17 @@ struct peerdirect_test : public testing::Test, public ibvt_env {
 	}
 
 	virtual void SetUp() {
-		EXEC(ctx.init());
-		EXEC(ctx_peer.init());
-		if (skip)
-			return;
-		EXEC(qp_peer.init());
-		EXEC(qp_peer.connect(&qp_peer));
-
-		EXEC(send_qp.init());
-		EXEC(recv_qp.init());
-		EXEC(send_qp.connect(&recv_qp));
-		EXEC(recv_qp.connect(&send_qp));
-		EXEC(src_mr.fill());
-		EXEC(dst_mr.init());
-		EXEC(cq.arm());
+		INIT(ctx_peer.init());
+		INIT(qp_peer.init());
+		INIT(qp_peer.connect(&qp_peer));
+		INIT(ctx.init());
+		INIT(send_qp.init());
+		INIT(recv_qp.init());
+		INIT(send_qp.connect(&recv_qp));
+		INIT(recv_qp.connect(&send_qp));
+		INIT(src_mr.fill());
+		INIT(dst_mr.init());
+		INIT(cq.arm());
 	}
 
 	virtual void TearDown() {

@@ -121,6 +121,7 @@ extern char *gtest_dev_name;
 	do{\
 		  if(this->skip_this_test) {\
 			       std::cout << "[  SKIPPED ] Feature " << #FEATURE_NAME << " is not supported" << std::endl;\
+			       ::testing::UnitTest::GetInstance()->runtime_skip(); \
 			       return;\
 			    }\
 	} while(0)

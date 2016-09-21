@@ -5200,6 +5200,10 @@ const TestInfo* UnitTest::current_test_info() const {
   return impl_->current_test_info();
 }
 
+void UnitTest::runtime_skip() {
+	impl_->current_test_info()->runtime_skip();
+}
+
 // Returns the random seed used at the start of the current test run.
 int UnitTest::random_seed() const { return impl_->random_seed(); }
 

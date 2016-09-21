@@ -212,7 +212,6 @@ struct tag_matching : public testing::Test, public ibvt_env {
 				  IBV_WR_TAG_SEND_RNDV));
 		EXEC(srq_cq.poll(2));
 		EXEC(send_cq.poll(2));
-		//fin.dump();
 	}
 
 	void append(int start, int length, uint64_t tag, int *idx = NULL) {
@@ -230,22 +229,18 @@ struct tag_matching : public testing::Test, public ibvt_env {
 	}
 
 	virtual void SetUp() {
-		EXEC(ctx.init());
-		if (!ctx.dev_attr.tm_caps.max_xrq) {
-			skip = 1;
-			return;
-		}
-		EXEC(srq.init());
-		EXEC(ctrl_qp.init());
-		EXEC(ctrl_qp.connect(&ctrl_qp));
-		EXEC(send_qp.init());
-		EXEC(recv_qp.init());
-		EXEC(send_qp.connect(&recv_qp));
-		EXEC(recv_qp.connect(&send_qp));
-		EXEC(src_mr.fill());
-		EXEC(dst_mr.init());
+		INIT(ctx.init());
+		INIT(srq.init());
+		INIT(ctrl_qp.init());
+		INIT(ctrl_qp.connect(&ctrl_qp));
+		INIT(send_qp.init());
+		INIT(recv_qp.init());
+		INIT(send_qp.connect(&recv_qp));
+		INIT(recv_qp.connect(&send_qp));
+		INIT(src_mr.fill());
+		INIT(dst_mr.init());
 		for(int i = 0; i<32; i++)
-			EXEC(recv(0, SZ));
+			INIT(recv(0, SZ));
 	}
 
 	virtual void TearDown() {

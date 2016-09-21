@@ -55,10 +55,8 @@ struct ibvt_mr_implicit : public ibvt_mr {
 
 	virtual void init() {
 		EXEC(pd.init());
-		mr = ibv_reg_mr(pd.pd, 0, UINT64_MAX, IBV_ACCESS_ON_DEMAND | access_flags);
-		if (!mr)
-			env.skip = 1;
-		else
+		SET(mr, ibv_reg_mr(pd.pd, 0, UINT64_MAX, IBV_ACCESS_ON_DEMAND | access_flags));
+		if (mr)
 			VERBS_TRACE("\t\t\t\t\tibv_reg_mr(pd, 0, 0, %x) = %x\n", access_flags, mr->lkey);
 	}
 };
@@ -112,16 +110,21 @@ struct odp_base : public testing::Test, public ibvt_env {
 		src(*this, ctx, src_access_flags),
 		dst(*this, ctx, dst_access_flags) {}
 
+	void check_stats(int mrs, int pages) {
+		EXEC(ctx.check_debugfs("odp_stats/num_odp_mrs", mrs));
+		EXEC(ctx.check_debugfs("odp_stats/num_odp_mr_pages", pages));
+	}
+
 	virtual void test(unsigned long src, unsigned long dst, size_t len) = 0;
 
 	virtual void SetUp() {
-		EXEC(ctx.init());
-		if (skip)
-			return;
-		EXEC(src.init());
-		EXEC(dst.init());
-		EXEC(src.qp.connect(&dst.qp));
-		EXEC(dst.qp.connect(&src.qp));
+		INIT(ctx.init());
+		INIT(ctx.init_debugfs());
+		INIT(check_stats(0, 0));
+		INIT(src.init());
+		INIT(dst.init());
+		INIT(src.qp.connect(&dst.qp));
+		INIT(dst.qp.connect(&src.qp));
 	}
 
 	virtual void TearDown() {
@@ -129,20 +132,23 @@ struct odp_base : public testing::Test, public ibvt_env {
 	}
 };
 
-struct odp_rdma_send : public odp_base {
-	odp_rdma_send():
+struct odp_send : public odp_base {
+	odp_send():
 		odp_base(0, IBV_ACCESS_LOCAL_WRITE) {}
 
 	virtual void test(unsigned long src, unsigned long dst, size_t len) {
 		ibvt_sub_mr src_mr(this->src.imr, src, len);
 		ibvt_sub_mr dst_mr(this->dst.imr, dst, len);
+
 		EXECL(src_mr.fill());
 		EXECL(dst_mr.init());
 
+		EXEC(check_stats(2, 0));
 		EXEC(dst.qp.recv(dst_mr, 0, len));
 		EXEC(src.qp.send(src_mr, 0, len));
 		EXEC(src.cq.poll(1));
 		EXEC(dst.cq.poll(1));
+		EXEC(check_stats(2, len / 0x1000 * 2));
 
 		EXECL(dst_mr.check());
 	}
@@ -158,10 +164,12 @@ struct odp_rdma_read : public odp_base {
 		EXECL(src_mr.fill());
 		EXECL(dst_mr.init());
 
+		EXEC(check_stats(2, 0));
 		EXEC(dst.qp.rdma(dst_mr,
 				 src_mr,
 				 IBV_WR_RDMA_READ));
 		EXEC(dst.cq.poll(1));
+		EXEC(check_stats(2, len / 0x1000 * 2));
 		EXECL(dst_mr.check());
 	}
 };
@@ -176,11 +184,12 @@ struct odp_rdma_write : public odp_base {
 		EXECL(src_mr.fill());
 		EXECL(dst_mr.init());
 
+		EXEC(check_stats(2, 0));
 		EXEC(src.qp.rdma(src_mr,
 				 dst_mr,
 				 IBV_WR_RDMA_WRITE));
 		EXEC(src.cq.poll(1));
-
+		EXEC(check_stats(2, len / 0x1000 * 2));
 		EXECL(dst_mr.check());
 	}
 };
@@ -190,7 +199,7 @@ template <typename T>
 struct odp : public T { };
 
 typedef testing::Types<
-	struct odp_rdma_send,
+	struct odp_send,
 	struct odp_rdma_read,
 	struct odp_rdma_write
 > odp_env_list;
