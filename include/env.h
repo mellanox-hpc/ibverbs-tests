@@ -175,15 +175,21 @@
 		} \
 	} while(0)
 
+#define SKIP() \
+	do { \
+		::testing::UnitTest::GetInstance()->runtime_skip(); \
+	} while(0)
+
 #define CHK_SUT(FEATURE_NAME) \
 	do { \
 		if (this->skip) { \
-			std::cout << "[  SKIPPED ] Feature " << #FEATURE_NAME << " lacks resources to be tests" << std::endl; \
-			::testing::UnitTest::GetInstance()->runtime_skip(); \
+			std::cout << "[  SKIPPED ] Feature " << #FEATURE_NAME << " lacks resources to be tested" << std::endl; \
+			SKIP(); \
 			return; \
 		} \
 		this->run = 1; \
 	} while(0);
+
 
 #define FREE(x,y) do { \
 		if (y) { \
@@ -196,7 +202,7 @@
 		} \
 	} while(0)
 
-#define POLL_RETRIES 16000000
+#define POLL_RETRIES 80000000
 
 #define ACTIVE (1 << 0)
 
@@ -371,7 +377,7 @@ struct ibvt_cq : public ibvt_obj {
 
 	virtual void init_attr(struct ibv_create_cq_attr_ex &attr, int &cqe) {
 		memset(&attr, 0, sizeof(attr));
-		cqe = 2;
+		cqe = 64;
 	}
 
 	virtual void init() {
@@ -457,30 +463,35 @@ struct ibvt_mr : public ibvt_obj {
 	struct ibv_mr *mr;
 	ibvt_pd &pd;
 	size_t size;
+	intptr_t addr;
+	int access_flags;
 	char *buff;
 
-	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s) :
+	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a = 0, int af = IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_READ|IBV_ACCESS_REMOTE_WRITE) :
 		ibvt_obj(e),
 		mr(NULL),
 		pd(p),
 		size(s),
+		addr(a),
+		access_flags(af),
 		buff(NULL) {}
 
 	virtual void init() {
+		int flags = MAP_PRIVATE|MAP_ANON;
 		if (mr)
 			return;
 		EXEC(pd.init());
-		buff = (char*)malloc(size);
+		if (addr)
+			flags |= MAP_FIXED;
+		buff = (char*)mmap((void*)addr, size, PROT_READ|PROT_WRITE, flags, -1, 0);
 		memset(buff, 0, size);
-		SET(mr, ibv_reg_mr(pd.pd, buff, size,
-				   IBV_ACCESS_LOCAL_WRITE |
-				   IBV_ACCESS_REMOTE_READ |
-				   IBV_ACCESS_REMOTE_WRITE));
+		SET(mr, ibv_reg_mr(pd.pd, buff, size, access_flags));
 		VERBS_TRACE("\t\t\t\tibv_reg_mr(pd, %p, %zx) = %x\n", buff, size, mr->lkey);
 	}
 
 	virtual ~ibvt_mr() {
 		FREE(ibv_dereg_mr, mr);
+		munmap(buff, size);
 	}
 
 	virtual void fill() {
