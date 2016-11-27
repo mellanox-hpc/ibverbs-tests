@@ -464,10 +464,10 @@ struct ibvt_mr : public ibvt_obj {
 	ibvt_pd &pd;
 	size_t size;
 	intptr_t addr;
-	int access_flags;
+	long access_flags;
 	char *buff;
 
-	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a = 0, int af = IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_READ|IBV_ACCESS_REMOTE_WRITE) :
+	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a = 0, long af = IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_READ|IBV_ACCESS_REMOTE_WRITE) :
 		ibvt_obj(e),
 		mr(NULL),
 		pd(p),
@@ -481,12 +481,11 @@ struct ibvt_mr : public ibvt_obj {
 		if (mr)
 			return;
 		EXEC(pd.init());
-		if (addr)
-			flags |= MAP_FIXED;
 		buff = (char*)mmap((void*)addr, size, PROT_READ|PROT_WRITE, flags, -1, 0);
+		ASSERT_NE(buff, MAP_FAILED);
 		memset(buff, 0, size);
 		SET(mr, ibv_reg_mr(pd.pd, buff, size, access_flags));
-		VERBS_TRACE("\t\t\t\tibv_reg_mr(pd, %p, %zx) = %x\n", buff, size, mr->lkey);
+		VERBS_TRACE("\t\t\t\tibv_reg_mr(pd, %p, %zx, %lx) = %x\n", buff, size, access_flags, mr->lkey);
 	}
 
 	virtual ~ibvt_mr() {
@@ -510,11 +509,11 @@ struct ibvt_mr : public ibvt_obj {
 		hexdump(pfx, buff, size);
 	}
 
-	virtual struct ibv_sge sge(int start, int length) {
+	virtual struct ibv_sge sge(intptr_t start, size_t length) {
 		struct ibv_sge ret;
 
 		memset(&ret, 0, sizeof(ret));
-		ret.addr = (uintptr_t)buff+start;
+		ret.addr = (intptr_t)buff + start;
 		ret.length = length;
 		ret.lkey = mr->lkey;
 
@@ -585,8 +584,7 @@ struct ibvt_qp : public ibvt_obj {
 		attr.comp_mask = IBV_QP_INIT_ATTR_PD;
 	}
 
-	virtual void recv(ibvt_mr &mr, int start, int length) {
-		struct ibv_sge sge = mr.sge(start, length);
+	virtual void recv(ibv_sge sge) {
 		struct ibv_recv_wr wr;
 		struct ibv_recv_wr *bad_wr = NULL;
 
@@ -598,8 +596,7 @@ struct ibvt_qp : public ibvt_obj {
 		DO(ibv_post_recv(qp, &wr, &bad_wr));
 	}
 
-	virtual void post_send(ibvt_mr &mr, int start, int length, enum ibv_wr_opcode opcode) {
-		struct ibv_sge sge = mr.sge(start, length);
+	virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode) {
 		struct ibv_send_wr wr;
 		struct ibv_send_wr *bad_wr = NULL;
 
@@ -613,9 +610,7 @@ struct ibvt_qp : public ibvt_obj {
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 
-	virtual void rdma(ibvt_mr &src_mr, ibvt_mr &dst_mr, enum ibv_wr_opcode opcode) {
-		struct ibv_sge src_sge = src_mr.sge();
-		struct ibv_sge dst_sge = dst_mr.sge();
+	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode) {
 		struct ibv_send_wr wr;
 		struct ibv_send_wr *bad_wr = NULL;
 
@@ -633,8 +628,8 @@ struct ibvt_qp : public ibvt_obj {
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 
-	virtual void send(ibvt_mr &mr, int start, int length) {
-		post_send(mr, start, length, IBV_WR_SEND);
+	virtual void send(ibv_sge sge) {
+		post_send(sge, IBV_WR_SEND);
 	}
 };
 

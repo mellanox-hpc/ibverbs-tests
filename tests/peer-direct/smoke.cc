@@ -474,14 +474,14 @@ struct peerdirect_test : public testing::Test, public ibvt_env {
 		return *(ops[i]);
 	}
 
-	void send(int start, int length) {
-		VERBS_INFO("Preparing send operation %d-%d\n",
+	void send(intptr_t start, size_t length) {
+		VERBS_INFO("Preparing send operation %ld-%ld\n",
 			   start, start + length);
-		EXEC(send_qp.send(src_mr, start, length));
+		EXEC(send_qp.send(src_mr.sge(start, length)));
 	}
 
-	void recv(int start, int length) {
-		EXEC(recv_qp.recv(dst_mr, start, length));
+	void recv(intptr_t start, size_t length) {
+		EXEC(recv_qp.recv(dst_mr.sge(start, length)));
 	}
 
 	void send_peer_prep(size_t n) {
