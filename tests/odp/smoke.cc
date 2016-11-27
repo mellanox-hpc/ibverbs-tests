@@ -48,18 +48,36 @@
 #include "env.h"
 
 struct ibvt_mr_implicit : public ibvt_mr {
-	int access_flags;
-
-	ibvt_mr_implicit(ibvt_env &e, ibvt_pd &p, int a) :
-		ibvt_mr(e, p, 0), access_flags(a) {}
+	ibvt_mr_implicit(ibvt_env &e, ibvt_pd &p, long a) :
+		ibvt_mr(e, p, 0, 0, a) {}
 
 	virtual void init() {
 		EXEC(pd.init());
 		SET(mr, ibv_reg_mr(pd.pd, 0, UINT64_MAX, IBV_ACCESS_ON_DEMAND | access_flags));
 		if (mr)
-			VERBS_TRACE("\t\t\t\t\tibv_reg_mr(pd, 0, 0, %x) = %x\n", access_flags, mr->lkey);
+			VERBS_TRACE("\t\t\t\t\tibv_reg_mr(pd, 0, 0, %lx) = %x\n", access_flags, mr->lkey);
 	}
 };
+
+
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+struct ibvt_mr_pf : public ibvt_mr {
+	ibvt_mr_pf(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a, long af) :
+		ibvt_mr(e, p, s, a, af) {}
+
+	virtual void init() {
+		EXEC(ibvt_mr::init());
+
+		struct ibv_exp_prefetch_attr attr;
+
+		attr.flags = IBV_EXP_PREFETCH_WRITE_ACCESS;
+		attr.addr = buff;
+		attr.length = size;
+		attr.comp_mask = 0;
+		DO(ibv_exp_prefetch_mr(mr, &attr));
+	}
+};
+#endif
 
 struct ibvt_sub_mr : public ibvt_mr {
 	ibvt_mr_implicit &master;
@@ -70,6 +88,7 @@ struct ibvt_sub_mr : public ibvt_mr {
 	virtual void init() {
 		mr = master.mr;
 		buff = (char*)mmap((void*)addr, size, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON|MAP_FIXED, -1, 0);
+		ASSERT_NE(buff, MAP_FAILED);
 	}
 
 	virtual ~ibvt_sub_mr() {
@@ -134,7 +153,7 @@ struct odp_base : public testing::Test, public ibvt_env {
 	}
 
 	virtual odp_mem &mem() = 0;
-	virtual void test(unsigned long src, unsigned long dst, size_t len) = 0;
+	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) = 0;
 
 	virtual void init() {
 		INIT(ctx.init());
@@ -163,6 +182,7 @@ struct odp_off : public odp_mem {
 		SET(psrc, new ibvt_mr(ssrc.env, ssrc.pd, len, src_addr, ssrc.access_flags));
 		SET(pdst, new ibvt_mr(sdst.env, sdst.pd, len, dst_addr, sdst.access_flags));
 	}
+
 };
 
 struct odp_explicit : public odp_mem {
@@ -173,6 +193,17 @@ struct odp_explicit : public odp_mem {
 		SET(pdst, new ibvt_mr(sdst.env, sdst.pd, len, dst_addr, sdst.access_flags | IBV_ACCESS_ON_DEMAND));
 	}
 };
+
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+struct odp_prefetch : public odp_mem {
+	odp_prefetch(odp_side &s, odp_side &d) : odp_mem(s, d) {}
+
+	virtual void reg(unsigned long src_addr, unsigned long dst_addr, size_t len) {
+		SET(psrc, new ibvt_mr_pf(ssrc.env, ssrc.pd, len, src_addr, ssrc.access_flags | IBV_ACCESS_ON_DEMAND));
+		SET(pdst, new ibvt_mr_pf(sdst.env, sdst.pd, len, dst_addr, sdst.access_flags | IBV_ACCESS_ON_DEMAND));
+	}
+};
+#endif
 
 struct odp_implicit : public odp_mem {
 	ibvt_mr_implicit simr;
@@ -195,16 +226,18 @@ struct odp_send : public odp_base {
 	odp_send():
 		odp_base(0, IBV_ACCESS_LOCAL_WRITE) {}
 
-	virtual void test(unsigned long src, unsigned long dst, size_t len) {
+	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) {
 		EXEC(mem().reg(src, dst, len));
 		EXEC(mem().src().fill());
 		EXEC(mem().dst().init());
 
 		EXEC(check_stats(2, 0));
-		EXEC(dst.qp.recv(mem().dst(), 0, len));
-		EXEC(src.qp.send(mem().src(), 0, len));
-		EXEC(src.cq.poll(1));
-		EXEC(dst.cq.poll(1));
+		for (int i = 0; i < count; i++) {
+			EXEC(dst.qp.recv(mem().dst().sge(len/count*i, len/count)));
+			EXEC(src.qp.send(mem().src().sge(len/count*i, len/count)));
+			EXEC(src.cq.poll(1));
+			EXEC(dst.cq.poll(1));
+		}
 		EXEC(check_stats(2, len / 0x1000 * 2));
 
 		EXEC(mem().dst().check());
@@ -216,16 +249,18 @@ struct odp_rdma_read : public odp_base {
 	odp_rdma_read():
 		odp_base(IBV_ACCESS_REMOTE_READ, IBV_ACCESS_LOCAL_WRITE) {}
 
-	virtual void test(unsigned long src, unsigned long dst, size_t len) {
+	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) {
 		EXEC(mem().reg(src, dst, len));
 		EXEC(mem().src().fill());
 		EXEC(mem().dst().init());
 
 		EXEC(check_stats(2, 0));
-		EXEC(dst.qp.rdma(mem().dst(),
-				 mem().src(),
-				 IBV_WR_RDMA_READ));
-		EXEC(dst.cq.poll(1));
+		for (int i = 0; i < count; i++) {
+			EXEC(dst.qp.rdma(mem().dst().sge(len/count*i, len/count),
+					 mem().src().sge(len/count*i, len/count),
+					 IBV_WR_RDMA_READ));
+			EXEC(dst.cq.poll(1));
+		}
 		EXEC(check_stats(2, len / 0x1000 * 2));
 		EXEC(mem().dst().check());
 		EXEC(mem().unreg());
@@ -236,16 +271,18 @@ struct odp_rdma_write : public odp_base {
 	odp_rdma_write():
 		odp_base(0, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE) {}
 
-	virtual void test(unsigned long src, unsigned long dst, size_t len) {
+	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) {
 		EXEC(mem().reg(src, dst, len));
 		EXEC(mem().src().fill());
 		EXEC(mem().dst().init());
 
 		EXEC(check_stats(2, 0));
-		EXEC(src.qp.rdma(mem().src(),
-				 mem().dst(),
-				 IBV_WR_RDMA_WRITE));
-		EXEC(src.cq.poll(1));
+		for (int i = 0; i < count; i++) {
+			EXEC(src.qp.rdma(mem().src().sge(len/count*i, len/count),
+						mem().dst().sge(len/count*i, len/count),
+						IBV_WR_RDMA_WRITE));
+			EXEC(src.cq.poll(1));
+		}
 		EXEC(check_stats(2, len / 0x1000 * 2));
 		EXEC(mem().dst().check());
 		EXEC(mem().unreg());
@@ -276,12 +313,33 @@ typedef testing::Types<
 	types<odp_explicit, odp_send>,
 	types<odp_explicit, odp_rdma_read>,
 	types<odp_explicit, odp_rdma_write>,
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+	types<odp_prefetch, odp_send>,
+	types<odp_prefetch, odp_rdma_read>,
+	types<odp_prefetch, odp_rdma_write>,
+#endif
 	types<odp_implicit, odp_send>,
 	types<odp_implicit, odp_rdma_read>,
 	types<odp_implicit, odp_rdma_write>
 > odp_env_list;
 
 TYPED_TEST_CASE(odp, odp_env_list);
+
+template <typename T>
+struct odp_seq : public odp<T> {
+	odp_seq(): odp<T>() {}
+};
+
+typedef testing::Types<
+	types<odp_off, odp_send>,
+	types<odp_off, odp_rdma_read>,
+	types<odp_off, odp_rdma_write>,
+	types<odp_implicit, odp_send>,
+	types<odp_implicit, odp_rdma_read>,
+	types<odp_implicit, odp_rdma_write>
+> odp_env_list_seq;
+
+TYPED_TEST_CASE(odp_seq, odp_env_list_seq);
 
 TYPED_TEST(odp, t0_crossbound) {
 	CHK_SUT(odp);
@@ -297,9 +355,17 @@ TYPED_TEST(odp, t1_upper) {
 		  0x2000));
 }
 
-TYPED_TEST(odp, t2_sequence) {
+TYPED_TEST(odp, t2_3G) {
 	CHK_SUT(odp);
-	unsigned long p = 0x2000000000-0x1000;
+	EXEC(test(0x2000000000,
+		  0x4000000000,
+		  0xc0000000,
+		  0x10));
+}
+
+TYPED_TEST(odp_seq, t3_sequence) {
+	CHK_SUT(odp);
+	unsigned long p = 0x2000000000;
 	for (int i = 0; i < 20; i++) {
 		EXEC(test(p, p+0x1000, 0x1000));
 		p += 0x2000;

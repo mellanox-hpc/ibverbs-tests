@@ -137,12 +137,11 @@ struct ibvt_qp_tm : public ibvt_qp_rc {
 		attr.cap.max_inline_data = 0x80;
 	}
 
-	virtual void send(ibvt_mr &mr, int start, int length,
+	virtual void send(ibv_sge sge,
 			  uint64_t tag, enum ibv_wr_opcode op,
 			  int send_flags = 0)
 	{
 		struct ibv_send_wr wr;
-		struct ibv_sge sge = mr.sge(start, length);
 		struct ibv_send_wr *bad_wr = NULL;
 
 		memset(&wr, 0, sizeof(wr));
@@ -157,11 +156,9 @@ struct ibvt_qp_tm : public ibvt_qp_rc {
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 
-	virtual void rndv(ibvt_mr &mr, int start, int length,
-			  uint64_t tag, ibvt_mr &mr2)
+	virtual void rndv(ibv_sge sge, uint64_t tag, ibvt_mr &mr2)
 	{
 		struct ibv_send_wr wr;
-		struct ibv_sge sge = mr.sge(start, length);
 		struct ibv_send_wr *bad_wr = NULL;
 		struct ibv_sge sge2;
 
@@ -304,7 +301,7 @@ struct tag_matching : public testing::TestWithParam<int>, public ibvt_env {
 	int SZ() { return GetParam(); }
 
 	void eager(int start, int length, uint64_t tag) {
-		EXEC(send_qp.send(src_mr, start, length, tag,
+		EXEC(send_qp.send(src_mr.sge(start, length), tag,
 				  IBV_WR_TAG_SEND_EAGER));
 
 		EXEC(send_cq.poll(1));
@@ -315,8 +312,8 @@ struct tag_matching : public testing::TestWithParam<int>, public ibvt_env {
 		ibvt_mr fin(*this, pd, 0x20);
 		ibvt_mr hdr(*this, pd, 0);
 		fin.init();
-		EXEC(send_qp.recv(fin, 0, 0x20));
-		EXEC(send_qp.rndv(src_mr, start, length, tag, hdr));
+		EXEC(send_qp.recv(fin.sge(0, 0x20)));
+		EXEC(send_qp.rndv(src_mr.sge(start, length), tag, hdr));
 		EXEC(send_cq.poll(1));
 		EXEC(srq_cq.poll(1));
 	}
@@ -381,7 +378,7 @@ TEST_P(tag_matching, u0_short) {
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
 	EXEC(append(0, SZ(), 1));
-	EXEC(send_qp.send(this->src_mr, 0, 0x40, 1,
+	EXEC(send_qp.send(this->src_mr.sge(0, 0x40), 1,
 			  IBV_WR_TAG_SEND_EAGER,
 			  IBV_SEND_INLINE));
 
@@ -396,7 +393,7 @@ TEST_P(tag_matching, u2_rndv) {
 	EXECL(hdr.fill());
 	EXEC(fix_uwq());
 	EXEC(append(0, SZ(), 1));
-	EXEC(send_qp.rndv(this->src_mr, 0, SZ(), 1, hdr));
+	EXEC(send_qp.rndv(this->src_mr.sge(0, SZ()), 1, hdr));
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
 	EXEC(dst_mr.check());
@@ -407,7 +404,7 @@ TEST_P(tag_matching, u3_rndv_unexp) {
 	ibvt_mr hdr(*this, this->pd, 0x10);
 	EXECL(hdr.fill());
 	EXEC(fix_uwq());
-	EXEC(send_qp.rndv(this->src_mr, 0, SZ(), 1, hdr));
+	EXEC(send_qp.rndv(this->src_mr.sge(0, SZ()), 1, hdr));
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
 	//EXEC(dst_mr.dump());
@@ -419,7 +416,7 @@ TEST_P(tag_matching, u4_rndv_sw) {
 	EXECL(hdr.fill());
 	EXEC(fix_uwq());
 	EXEC(append(0, SZ()/2, 1));
-	EXEC(send_qp.rndv(this->src_mr, 0, SZ(), 1, hdr));
+	EXEC(send_qp.rndv(this->src_mr.sge(0, SZ()), 1, hdr));
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
 	//EXEC(dst_mr.dump());
@@ -429,7 +426,7 @@ TEST_P(tag_matching, u1_imm) {
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
 	EXEC(append(0, SZ(), 1));
-	EXEC(send_qp.send(this->src_mr, 0, 0x20, 1,
+	EXEC(send_qp.send(this->src_mr.sge(0, 0x20), 1,
 			  IBV_WR_TAG_SEND_EAGER_WITH_IMM,
 			  IBV_SEND_INLINE));
 
@@ -534,7 +531,7 @@ TEST_P(tag_matching, e6_unexp_inline) {
 	dst.init();
 	EXEC(srq.recv(dst, 0, 0x20));
 	EXEC(fix_uwq());
-	EXEC(send_qp.send(src, 0x10, 0x10, 0x12345,
+	EXEC(send_qp.send(src.sge(0x10, 0x10), 0x12345,
 			  IBV_WR_TAG_SEND_EAGER));
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
@@ -544,7 +541,7 @@ TEST_P(tag_matching, e7_no_tag) {
 	CHK_SUT(tag-matching);
 	EXEC(recv(0, SZ()));
 	EXEC(fix_uwq());
-	EXEC(send_qp.send(src_mr, 0x1, SZ()-0x1, 0,
+	EXEC(send_qp.send(this->src_mr.sge(0x1, SZ()-0x1), 0,
 			  IBV_WR_TAG_SEND_NO_TAG));
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
@@ -577,7 +574,7 @@ TEST_P(tag_matching, r0_unexp) {
 	dst.init();
 	EXEC(srq.recv(dst, 0, 0x80));
 	EXEC(fix_uwq());
-	EXEC(send_qp.rndv(this->src_mr, 0, SZ(), 1, hdr));
+	EXEC(send_qp.rndv(this->src_mr.sge(0, SZ()), 1, hdr));
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
 	//dst.dump();
