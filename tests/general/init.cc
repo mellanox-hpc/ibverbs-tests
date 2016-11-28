@@ -38,9 +38,7 @@ TEST(tc_ibv_get_device_list, ti_1) {
 	struct ibv_device **dev_list;
 	int num_devices = 0;
 
-	errno = EOK;
 	dev_list = ibv_get_device_list(&num_devices);
-	EXPECT_TRUE(errno == EOK);
 	EXPECT_TRUE(dev_list != NULL);
 	EXPECT_TRUE(num_devices);
 
@@ -54,9 +52,7 @@ TEST(tc_ibv_get_device_name, ti_1) {
 	int num_devices = 0;
 	int i = 0;
 
-	errno = EOK;
 	dev_list = ibv_get_device_list(&num_devices);
-	EXPECT_TRUE(errno == EOK);
 	EXPECT_TRUE(dev_list != NULL);
 	EXPECT_TRUE(num_devices);
 
@@ -78,9 +74,7 @@ TEST(tc_ibv_open_device, ti_1) {
 	int num_devices = 0;
 	int i;
 
-	errno = EOK;
 	dev_list = ibv_get_device_list(&num_devices);
-	ASSERT_TRUE(errno == EOK);
 	ASSERT_TRUE(dev_list != NULL);
 	ASSERT_TRUE(num_devices);
 
