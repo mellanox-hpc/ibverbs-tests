@@ -705,15 +705,18 @@ struct ibvt_qp_ud : public ibvt_qp_rc {
 		SET(qp, ibv_create_qp_ex(pd.ctx.ctx, &attr));
 	}
 
-	virtual void post_send(ibvt_mr &mr, int start, int length, enum ibv_wr_opcode opcode) {
-		struct ibv_sge sge = mr.sge(start + 40, length - 40);
+	virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode) {
+		struct ibv_sge sge_ud = sge;
 		struct ibv_send_wr wr;
 		struct ibv_send_wr *bad_wr = NULL;
+
+		sge_ud.addr += 40;
+		sge_ud.length -= 40;
 
 		memset(&wr, 0, sizeof(wr));
 		wr.next = NULL;
 		wr.wr_id = 0;
-		wr.sg_list = &sge;
+		wr.sg_list = &sge_ud;
 		wr.num_sge = 1;
 		wr.opcode = opcode;
 		wr.send_flags = IBV_SEND_SIGNALED;
