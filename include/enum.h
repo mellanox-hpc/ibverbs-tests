@@ -26,55 +26,23 @@
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#ifndef _CHECKS_H
-#define _CHECKS_H
+#ifndef __IBVT_ENUM_H_
+#define __IBVT_ENUM_H_
 
-#include "cc_verbs_test.h"
+/* :'<,'>s/\v(\S+),/DEF_ENUM_ELEM(\1) \\ */
 
-#ifdef HAVE_CROSS_CHANNEL
-class tc_verbs_query_device : public cc_base_verbs_test {};
-class tc_verbs_create_cq : public cc_init_verbs_test {};
-class tc_verbs_post_send_en : public cc_init_verbs_test {};
-class tc_verbs_post_recv_en : public cc_init_verbs_test {};
-class tc_verbs_post_send_wait : public cc_init_verbs_test {};
-#else
-class cc_dummy_class : public testing::Test {
-protected:
-	virtual void SetUp() {
-		printf("[  SKIPPED ] Feature cross-channel is not supported\n");
-		::testing::UnitTest::GetInstance()->runtime_skip();
+#define DEF_ENUM_ELEM_TO_STR(elem) \
+	if (x == elem) \
+		return #elem; \
+	else
+
+#define DEF_ENUM_TO_STR_BEGIN(type) \
+	const char * type ## _str (enum type x) {
+
+#define DEF_ENUM_TO_STR_END \
+	return "UNKNOWN"; \
 	}
-};
-class tc_verbs_query_device : public cc_dummy_class {};
-class tc_verbs_create_cq : public cc_dummy_class {};
-class tc_verbs_post_send_en : public cc_dummy_class {};
-class tc_verbs_post_recv_en : public cc_dummy_class {};
-class tc_verbs_post_send_wait : public cc_dummy_class {};
+
 #endif
 
-#ifdef HAVE_CROSS_CHANNEL_CALC
-/* do nothing */
-#else
-class cc_calc_dummy_class : public testing::Test {
-protected:
-	virtual void SetUp() {
-		printf("[  SKIPPED ] Feature cross-channel CALC is not supported\n");
-		::testing::UnitTest::GetInstance()->runtime_skip();
-	}
-};
-#endif
 
-#ifdef HAVE_CROSS_CHANNEL_TASK
-class tc_verbs_post_task : public cc_init_verbs_test {};
-#else
-class cc_task_dummy_class : public testing::Test {
-protected:
-	virtual void SetUp() {
-		printf("[  SKIPPED ] Feature cross-channel tasks is not supported\n");
-		::testing::UnitTest::GetInstance()->runtime_skip();
-	}
-};
-class tc_verbs_post_task : public cc_task_dummy_class {};
-#endif
-
-#endif //_CHECKS_H

@@ -42,15 +42,13 @@ protected:
 		int num_devices = 0;
 		int i = 0;
 
-		errno = EOK;
 		/*
 		 * First you must retrieve the list of available IB devices on the local host.
 		 * Every device in this list contains both a name and a GUID.
 		 * For example the device names can be: mthca0, mlx4_1.
 		 */
 		dev_list = ibv_get_device_list(&num_devices);
-		ASSERT_TRUE(errno == EOK);
-		ASSERT_TRUE(dev_list != NULL);
+		ASSERT_TRUE(dev_list != NULL) << "error: " << errno;
 		ASSERT_TRUE(num_devices);
 
 		/*

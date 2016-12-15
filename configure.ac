@@ -38,7 +38,7 @@ AC_INIT([ibverbs-tests], [ibverbs_tests_ver_major.ibverbs_tests_ver_minor])
 AC_CONFIG_AUX_DIR(config)
 AC_CONFIG_MACRO_DIR(config)
 AC_CONFIG_HEADER(config.h)
-AM_INIT_AUTOMAKE([1.10 foreign tar-ustar silent-rules subdir-objects])
+AM_INIT_AUTOMAKE([1.10 foreign tar-ustar subdir-objects])
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
 dnl Checks for programs

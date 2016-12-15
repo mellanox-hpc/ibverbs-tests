@@ -43,6 +43,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <linux/limits.h>
 
 #include <infiniband/verbs.h>
 
@@ -142,6 +143,15 @@
 		this->env.lvl_str[--this->env.lvl] = 0; \
 	} while(0)
 
+#define INIT(x) do { \
+		if (!this->env.skip) { \
+			VERBS_TRACE("%3d.%p: initialize\t%s" #x "\n", __LINE__, this, this->env.lvl_str); \
+			this->env.lvl_str[this->env.lvl++] = ' '; \
+			EXPECT_NO_FATAL_FAILURE(this->x); \
+			this->env.lvl_str[--this->env.lvl] = 0; \
+		} \
+	} while(0)
+
 #define EXECL(x) do { \
 		VERBS_TRACE("%3d.%p: execute\t%s" #x "\n", __LINE__, this, this->env.lvl_str); \
 		this->env.lvl_str[this->env.lvl++] = ' '; \
@@ -157,15 +167,29 @@
 #define SET(x,y) do { \
 		VERBS_TRACE("%3d.%p: doing\t%s" #y "\n", __LINE__, this, env.lvl_str); \
 		x=y; \
-		ASSERT_TRUE(x) << #y << " errno: " << errno; \
+		if (this->env.run) \
+			ASSERT_TRUE(x) << #y << " errno: " << errno; \
+		else if (!x) { \
+			VERBS_TRACE("%3d.%p: failed\t%s" #y " - skipping test\n", __LINE__, this, env.lvl_str); \
+			this->env.skip = 1; \
+		} \
+	} while(0)
+
+#define SKIP() \
+	do { \
+		::testing::UnitTest::GetInstance()->runtime_skip(); \
 	} while(0)
 
 #define CHK_SUT(FEATURE_NAME) \
 	do { \
-		if (this->skip) \
-			std::cout << "[  SKIPPED ] Feature " << #FEATURE_NAME << " is not supported" << std::endl;\
+		if (this->skip) { \
+			std::cout << "[  SKIPPED ] Feature " << #FEATURE_NAME << " lacks resources to be tested" << std::endl; \
+			SKIP(); \
 			return; \
+		} \
+		this->run = 1; \
 	} while(0);
+
 
 #define FREE(x,y) do { \
 		if (y) { \
@@ -178,7 +202,7 @@
 		} \
 	} while(0)
 
-#define POLL_RETRIES 1600000
+#define POLL_RETRIES 80000000
 
 #define ACTIVE (1 << 0)
 
@@ -206,13 +230,15 @@ struct ibvt_env {
 	int skip;
 	int fatality;
 	int flags;
+	int run;
 
 	ibvt_env() :
 		env(*this),
 		lvl(0),
 		skip(0),
 		fatality(0),
-		flags(0)
+		flags(ACTIVE),
+		run(0)
 	{
 		memset(lvl_str, 0, sizeof(lvl_str));
 	}
@@ -234,8 +260,54 @@ struct ibvt_ctx : public ibvt_obj {
 	struct ibv_device_attr_ex dev_attr;
 	uint8_t port_num;
 	uint16_t lid;
+	char *pdev_name;
 
-	ibvt_ctx(ibvt_env &e, ibvt_ctx *o) : ibvt_obj(e), ctx(NULL), other(o), port_num(0) {}
+	ibvt_ctx(ibvt_env &e, ibvt_ctx *o) :
+		ibvt_obj(e),
+		ctx(NULL),
+		other(o),
+		port_num(0),
+		pdev_name(NULL) {}
+
+	void init_debugfs() {
+		char path[PATH_MAX];
+		char pdev[PATH_MAX], *p = pdev, *tok;
+		struct stat st;
+
+		sprintf(path, "/sys/class/infiniband/%s", ibv_get_device_name(dev));
+		readlink(path, pdev, PATH_MAX);
+		while ((tok = strsep(&p, "/"))) {
+			if (tok[0] == '.')
+				continue;
+			sprintf(path, "/sys/kernel/debug/mlx5/%s", tok);
+			if (stat(path, &st) == 0) {
+				pdev_name = strdup(tok);
+				return;
+			}
+		}
+	}
+
+	void check_debugfs(const char* var, int val) {
+		char path[PATH_MAX];
+		char buff[PATH_MAX];
+		int fd;
+
+		if (!pdev_name)
+			return;
+
+		sprintf(path, "/sys/kernel/debug/mlx5/%s/%s", pdev_name, var);
+		fd = open(path, O_RDONLY);
+
+		if (fd < 0)
+			return;
+		read(fd, buff, sizeof(buff));
+		close(fd);
+
+		VERBS_TRACE("%3d.%p: debugfs\t%s %s = %s\n", __LINE__,
+			    this, env.lvl_str, var, buff);
+		ASSERT_EQ(val, atoi(buff)) << var;
+	}
+
 
 	virtual void init() {
 		struct ibv_port_attr port_attr;
@@ -266,6 +338,7 @@ struct ibvt_ctx : public ibvt_obj {
 				break;
 			} else {
 				DO(ibv_close_device(ctx));
+				ctx = NULL;
 			}
 		}
 		ibv_free_device_list(dev_list);
@@ -304,7 +377,7 @@ struct ibvt_cq : public ibvt_obj {
 
 	virtual void init_attr(struct ibv_create_cq_attr_ex &attr, int &cqe) {
 		memset(&attr, 0, sizeof(attr));
-		cqe = 2;
+		cqe = 64;
 	}
 
 	virtual void init() {
@@ -349,7 +422,7 @@ struct ibvt_cq_event : public ibvt_cq {
 	int num_cq_events;
 
 	ibvt_cq_event(ibvt_env &e, ibvt_ctx &c) :
-		ibvt_cq(e, c), channel(NULL) {}
+		ibvt_cq(e, c), channel(NULL), num_cq_events(0) {}
 
 	virtual void init() {
 		struct ibv_create_cq_attr_ex attr;
@@ -390,30 +463,34 @@ struct ibvt_mr : public ibvt_obj {
 	struct ibv_mr *mr;
 	ibvt_pd &pd;
 	size_t size;
+	intptr_t addr;
+	long access_flags;
 	char *buff;
 
-	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s) :
+	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a = 0, long af = IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_READ|IBV_ACCESS_REMOTE_WRITE) :
 		ibvt_obj(e),
 		mr(NULL),
 		pd(p),
 		size(s),
+		addr(a),
+		access_flags(af),
 		buff(NULL) {}
 
 	virtual void init() {
+		int flags = MAP_PRIVATE|MAP_ANON;
 		if (mr)
 			return;
 		EXEC(pd.init());
-		buff = (char*)malloc(size);
+		buff = (char*)mmap((void*)addr, size, PROT_READ|PROT_WRITE, flags, -1, 0);
+		ASSERT_NE(buff, MAP_FAILED);
 		memset(buff, 0, size);
-		SET(mr, ibv_reg_mr(pd.pd, buff, size,
-				   IBV_ACCESS_LOCAL_WRITE |
-				   IBV_ACCESS_REMOTE_READ |
-				   IBV_ACCESS_REMOTE_WRITE));
-		VERBS_TRACE("\t\t\t\tibv_reg_mr(pd, %p, %zx) = %x\n", buff, size, mr->lkey);
+		SET(mr, ibv_reg_mr(pd.pd, buff, size, access_flags));
+		VERBS_TRACE("\t\t\t\tibv_reg_mr(pd, %p, %zx, %lx) = %x\n", buff, size, access_flags, mr->lkey);
 	}
 
 	virtual ~ibvt_mr() {
 		FREE(ibv_dereg_mr, mr);
+		munmap(buff, size);
 	}
 
 	virtual void fill() {
@@ -432,11 +509,11 @@ struct ibvt_mr : public ibvt_obj {
 		hexdump(pfx, buff, size);
 	}
 
-	virtual struct ibv_sge sge(int start, int length) {
+	virtual struct ibv_sge sge(intptr_t start, size_t length) {
 		struct ibv_sge ret;
 
 		memset(&ret, 0, sizeof(ret));
-		ret.addr = (uintptr_t)buff+start;
+		ret.addr = (intptr_t)buff + start;
 		ret.length = length;
 		ret.lkey = mr->lkey;
 
@@ -507,8 +584,7 @@ struct ibvt_qp : public ibvt_obj {
 		attr.comp_mask = IBV_QP_INIT_ATTR_PD;
 	}
 
-	virtual void recv(ibvt_mr &mr, int start, int length) {
-		struct ibv_sge sge = mr.sge(start, length);
+	virtual void recv(ibv_sge sge) {
 		struct ibv_recv_wr wr;
 		struct ibv_recv_wr *bad_wr = NULL;
 
@@ -520,8 +596,7 @@ struct ibvt_qp : public ibvt_obj {
 		DO(ibv_post_recv(qp, &wr, &bad_wr));
 	}
 
-	virtual void post_send(ibvt_mr &mr, int start, int length, enum ibv_wr_opcode opcode) {
-		struct ibv_sge sge = mr.sge(start, length);
+	virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode) {
 		struct ibv_send_wr wr;
 		struct ibv_send_wr *bad_wr = NULL;
 
@@ -535,9 +610,7 @@ struct ibvt_qp : public ibvt_obj {
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 
-	virtual void rdma(ibvt_mr &src_mr, ibvt_mr &dst_mr, enum ibv_wr_opcode opcode) {
-		struct ibv_sge src_sge = src_mr.sge();
-		struct ibv_sge dst_sge = dst_mr.sge();
+	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode) {
 		struct ibv_send_wr wr;
 		struct ibv_send_wr *bad_wr = NULL;
 
@@ -555,8 +628,8 @@ struct ibvt_qp : public ibvt_obj {
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 
-	virtual void send(ibvt_mr &mr, int start, int length) {
-		post_send(mr, start, length, IBV_WR_SEND);
+	virtual void send(ibv_sge sge) {
+		post_send(sge, IBV_WR_SEND);
 	}
 };
 
@@ -632,15 +705,18 @@ struct ibvt_qp_ud : public ibvt_qp_rc {
 		SET(qp, ibv_create_qp_ex(pd.ctx.ctx, &attr));
 	}
 
-	virtual void post_send(ibvt_mr &mr, int start, int length, enum ibv_wr_opcode opcode) {
-		struct ibv_sge sge = mr.sge(start + 40, length - 40);
+	virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode) {
+		struct ibv_sge sge_ud = sge;
 		struct ibv_send_wr wr;
 		struct ibv_send_wr *bad_wr = NULL;
+
+		sge_ud.addr += 40;
+		sge_ud.length -= 40;
 
 		memset(&wr, 0, sizeof(wr));
 		wr.next = NULL;
 		wr.wr_id = 0;
-		wr.sg_list = &sge;
+		wr.sg_list = &sge_ud;
 		wr.num_sge = 1;
 		wr.opcode = opcode;
 		wr.send_flags = IBV_SEND_SIGNALED;
