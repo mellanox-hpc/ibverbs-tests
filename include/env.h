@@ -50,6 +50,32 @@
 #ifdef HAVE_INFINIBAND_VERBS_EXP_H
 #include <infiniband/verbs_exp.h>
 
+#define ibv_flow_attr	  		ibv_exp_flow_attr
+#define ibv_flow_spec_eth		ibv_exp_flow_spec_eth
+#define ibv_flow			ibv_exp_flow
+#define ibv_flow_attr			ibv_exp_flow_attr
+#define ibv_create_flow			ibv_exp_create_flow
+#define ibv_destroy_flow		ibv_exp_destroy_flow
+#define ibv_flow_attr		ibv_exp_flow_attr
+#define ibv_flow_spec	ibv_exp_flow_spec
+#define ibv_flow_attr	ibv_exp_flow_attr
+#define ibv_flow_spec_tunnel 	ibv_exp_flow_spec_tunnel
+#define ibv_flow_spec_eth	ibv_exp_flow_spec_eth
+#define ibv_flow_spec_ipv4	ibv_exp_flow_spec_ipv4
+#define ibv_flow_spec_tcp_udp 	ibv_exp_flow_spec_tcp_udp
+#define ibv_flow_attr	ibv_exp_flow_attr
+#define IBV_FLOW_ATTR_NORMAL	IBV_EXP_FLOW_ATTR_NORMAL
+#define ibv_flow_attr	ibv_exp_flow_attr
+#define ibv_flow_spec	ibv_exp_flow_spec
+#define IBV_FLOW_SPEC_ETH	IBV_EXP_FLOW_SPEC_ETH
+#define ibv_flow_spec_eth	ibv_exp_flow_spec_eth
+#define IBV_FLOW_SPEC_IPV4	IBV_EXP_FLOW_SPEC_IPV4
+#define IBV_FLOW_SPEC_UDP	IBV_EXP_FLOW_SPEC_UDP
+#define IBV_FLOW_SPEC_VXLAN_TUNNEL IBV_EXP_FLOW_SPEC_VXLAN_TUNNEL
+#define ibv_flow_spec_tunnel	ibv_exp_flow_spec_tunnel
+#define IBV_FLOW_SPEC_INNER	IBV_EXP_FLOW_SPEC_INNER
+#define ibv_flow		ibv_exp_flow
+
 #define ibv_peer_commit			 ibv_exp_peer_commit
 #define ibv_peer_commit_qp		 ibv_exp_peer_commit_qp
 
@@ -262,7 +288,7 @@ struct ibvt_ctx : public ibvt_obj {
 	uint16_t lid;
 	char *pdev_name;
 
-	ibvt_ctx(ibvt_env &e, ibvt_ctx *o) :
+	ibvt_ctx(ibvt_env &e, ibvt_ctx *o = NULL) :
 		ibvt_obj(e),
 		ctx(NULL),
 		other(o),
@@ -308,6 +334,12 @@ struct ibvt_ctx : public ibvt_obj {
 		ASSERT_EQ(val, atoi(buff)) << var;
 	}
 
+	virtual bool check_port(struct ibv_port_attr &port_attr ){
+		if (env.flags & ACTIVE)
+			if (port_attr.state != IBV_PORT_ACTIVE)
+				return true;
+		return false;
+	}
 
 	virtual void init() {
 		struct ibv_port_attr port_attr;
@@ -325,9 +357,8 @@ struct ibvt_ctx : public ibvt_obj {
 			DO(ibv_query_device_(ctx, &dev_attr, dev_attr_orig));
 			for (int port = 1; port <= dev_attr_orig->phys_port_cnt; port++) {
 				DO(ibv_query_port(ctx, port, &port_attr));
-				if (env.flags & ACTIVE)
-					if (port_attr.state != IBV_PORT_ACTIVE)
-						continue;
+				if (!check_port(port_attr))
+					continue;
 
 				port_num = port;
 				lid = port_attr.lid;
@@ -414,6 +445,19 @@ struct ibvt_cq : public ibvt_obj {
 					wc[i].status, wc[i].opcode, wc[i].byte_len, wc[i].qp_num, wc[i].slid);
 			ASSERT_FALSE(wc[i].status) << ibv_wc_status_str(wc[i].status);
 		}
+	}
+	virtual void poll_arrive(int n) {
+		struct ibv_wc wc[n];
+		int result = 0, retries = POLL_RETRIES;
+
+		VERBS_TRACE("%d.%p polling...\n", __LINE__, this);
+
+		while (!result && --retries) {
+			result = ibv_poll_cq(cq, n, wc);
+			ASSERT_GE(result,0);
+		}
+		ASSERT_EQ(result,0) << "errno: " << errno;
+
 	}
 };
 
