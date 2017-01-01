@@ -188,34 +188,6 @@ struct ibvt_raw_qp : public ibvt_qp {
 	size_t length;
         struct ibv_flow	*flow_create_result;
 
-
- 	virtual void recv(ibv_sge sge) {
-                struct ibv_recv_wr wr;
-                struct ibv_recv_wr *bad_wr = NULL;
-
-                memset(&wr, 0, sizeof(wr));
-                wr.next = NULL;
-                wr.wr_id = 0;
-                wr.wr_id      = PINGPONG_RECV_WRID; 
-                wr.sg_list = &sge;
-                wr.num_sge = 1;
-                DO(ibv_post_recv(qp, &wr, &bad_wr));
-        }
-
-        virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode) {
-                struct ibv_send_wr wr;
-                struct ibv_send_wr *bad_wr = NULL;
-
-                memset(&wr, 0, sizeof(wr));
-                wr.next = NULL;
-                wr.wr_id = PINGPONG_SEND_WRID; 
-                wr.sg_list = &sge;
-                wr.num_sge = 1;
-                wr.opcode = IBV_WR_SEND; 
-                wr.send_flags = IBV_SEND_SIGNALED;
-                DO(ibv_post_send(qp, &wr, &bad_wr));
-        }
-
 	virtual void init() { 
 	
 		EXEC(pd.init());
