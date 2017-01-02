@@ -87,7 +87,6 @@
 #define MY_DEST_MAC6    0x67
 #define SRC_PORT    	1337
 #define DST_PORT    	4789
-#define HAVE_RAW_ETH_EXP
 
 #define BUF_SIZ         96
 #define SZ 96
