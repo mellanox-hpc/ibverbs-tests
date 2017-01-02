@@ -65,5 +65,7 @@ endif
 
 ibv_test_SOURCES +=      tests/odp/smoke.cc
 
+ibv_test_SOURCES +=      tests/vxlan/smoke.cc
+
 EXTRA_DIST = src/gtest-all.cc
 EXTRA_DIST += autogen.sh
