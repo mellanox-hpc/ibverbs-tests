@@ -573,7 +573,7 @@ TEST_F(vxlan_test, t0) {
 	EXEC(qp_recv.connect());
 	EXEC(qp_send.connect());
 	EXEC(qp_recv.vxlan_create_rules(qp_recv.qp, flow_rules));
-        EXEC(qp_send.send_raw_packet(this->mr_send.buff, 1));
+	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 1));
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 
 	EXEC(cq_send.poll(1));
@@ -591,7 +591,7 @@ TEST_F(vxlan_test, t1) {
 	EXEC(qp_recv.connect());
 	EXEC(qp_send.connect());
 	EXEC(qp_recv.vxlan_create_rules(qp_recv.qp, flow_rules));
-        EXEC(qp_send.send_raw_packet(this->mr_send.buff, 0));
+	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 0));
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 
 	EXEC(cq_send.poll(1));
@@ -600,3 +600,24 @@ TEST_F(vxlan_test, t1) {
 
 }
 
+TEST_F(vxlan_test, t2) {
+
+	int len = BUF_SIZ ;
+	CHK_SUT(basic);
+	EXEC(qp_recv.set_up_flow_rules(&flow_rules));
+	EXEC(qp_recv.recv(mr_recv.sge(0, len)));
+	EXEC(qp_recv.connect());
+	EXEC(qp_send.connect());
+	EXEC(qp_recv.vxlan_create_rules(qp_recv.qp, flow_rules));
+	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 1));
+	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
+
+	EXEC(cq_send.poll(1));
+	EXEC(cq_recv.poll(1));
+	EXEC(qp_recv.vxlan_destroy_rules());
+	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 0));
+	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
+	EXEC(cq_send.poll(1));
+	EXEC(cq_recv.poll_arrive(1));
+
+}
