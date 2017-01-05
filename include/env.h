@@ -76,6 +76,9 @@
 #define IBV_FLOW_SPEC_INNER	IBV_EXP_FLOW_SPEC_INNER
 #define ibv_flow		ibv_exp_flow
 
+#define IBV_FLOW_SPEC_ACTION_TAG	IBV_EXP_FLOW_SPEC_ACTION_TAG
+#define ibv_flow_spec_action_tag	ibv_exp_flow_spec_action_tag
+
 #define ibv_peer_commit			 ibv_exp_peer_commit
 #define ibv_peer_commit_qp		 ibv_exp_peer_commit_qp
 
