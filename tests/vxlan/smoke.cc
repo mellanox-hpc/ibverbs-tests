@@ -549,6 +549,7 @@ struct vxlan_test : public testing::Test, public ibvt_env {
 
 	virtual void SetUp() {
 
+#ifdef HAVE_VXLAN
 
 		INIT(ctx_recv.init());
 		INIT(ctx_send.init());
@@ -556,6 +557,9 @@ struct vxlan_test : public testing::Test, public ibvt_env {
 		INIT(qp_recv.init());
 		INIT(mr_recv.init());
 		INIT(mr_send.init());
+#else 
+		skip = 1;
+#endif
 
 	}
 
@@ -567,13 +571,17 @@ struct vxlan_test : public testing::Test, public ibvt_env {
 TEST_F(vxlan_test, t0) {
 
 	int len = BUF_SIZ ;
-	CHK_SUT(basic);
+	CHK_SUT(Vxlan);
+#ifdef HAVE_VXLAN
 	EXEC(qp_recv.set_up_flow_rules(&flow_rules));
+#endif
 	EXEC(qp_recv.recv(mr_recv.sge(0, len)));
 	EXEC(qp_recv.connect());
 	EXEC(qp_send.connect());
+#ifdef HAVE_VXLAN
 	EXEC(qp_recv.vxlan_create_rules(qp_recv.qp, flow_rules));
 	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 1));
+#endif
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 
 	EXEC(cq_send.poll(1));
@@ -585,13 +593,17 @@ TEST_F(vxlan_test, t0) {
 TEST_F(vxlan_test, t1) {
 
 	int len = BUF_SIZ ;
-	CHK_SUT(basic);
+	CHK_SUT(Vxlan);
+#ifdef HAVE_VXLAN
 	EXEC(qp_recv.set_up_flow_rules(&flow_rules));
+#endif
 	EXEC(qp_recv.recv(mr_recv.sge(0, len)));
 	EXEC(qp_recv.connect());
 	EXEC(qp_send.connect());
+#ifdef HAVE_VXLAN
 	EXEC(qp_recv.vxlan_create_rules(qp_recv.qp, flow_rules));
 	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 0));
+#endif
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 
 	EXEC(cq_send.poll(1));
@@ -603,19 +615,25 @@ TEST_F(vxlan_test, t1) {
 TEST_F(vxlan_test, t2) {
 
 	int len = BUF_SIZ ;
-	CHK_SUT(basic);
+	CHK_SUT(Vxlan);
+#ifdef HAVE_VXLAN
 	EXEC(qp_recv.set_up_flow_rules(&flow_rules));
+#endif
 	EXEC(qp_recv.recv(mr_recv.sge(0, len)));
 	EXEC(qp_recv.connect());
 	EXEC(qp_send.connect());
+#ifdef HAVE_VXLAN
 	EXEC(qp_recv.vxlan_create_rules(qp_recv.qp, flow_rules));
 	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 1));
+#endif
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 
 	EXEC(cq_send.poll(1));
 	EXEC(cq_recv.poll(1));
+#ifdef HAVE_VXLAN
 	EXEC(qp_recv.vxlan_destroy_rules());
 	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 0));
+#endif
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 	EXEC(cq_send.poll(1));
 	EXEC(cq_recv.poll_arrive(1));
