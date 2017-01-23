@@ -93,8 +93,6 @@
 typedef unsigned short u16;
 typedef unsigned long u32;
 
-char macbuf[6];
-struct ether_header *eh_mac = NULL;
 
 enum {
         PINGPONG_RECV_WRID = 1,
@@ -114,7 +112,7 @@ enum {
 { if((var = (type*)malloc(sizeof(type)*(size))) == NULL)        \
         { fprintf(stderr," Cannot Allocate\n"); exit(1);}}
 
-unsigned short csum(unsigned short *buf, int nwords)
+unsigned short get_csum(unsigned short *buf, int nwords)
 {
     unsigned long sum;
     for(sum=0; nwords>0; nwords--)
@@ -124,7 +122,7 @@ unsigned short csum(unsigned short *buf, int nwords)
     return (unsigned short)(~sum);
 }
 
-uint16_t udp_checksum(const void *buff, size_t len)
+uint16_t get_udp_checksum(const void *buff, size_t len)
 {
 	char src_addr[15], dest_addr[15];
         const uint16_t *buf=(const uint16_t*)buff;
@@ -158,7 +156,7 @@ uint16_t udp_checksum(const void *buff, size_t len)
         return ( (uint16_t)(~sum)  );
 }
 
-int calc_flow_rules_size()
+int flow_calc_flow_rules_size()
 {
         int tot_size = sizeof(struct ibv_flow_attr);
         tot_size += sizeof(struct ibv_flow_spec_eth);
@@ -238,7 +236,7 @@ struct ibvt_raw_qp : public ibvt_qp {
 		DO(ibv_modify_qp(qp, &attr, flags));
 	}
 
-	void vxlan_create_rules( struct ibv_qp  *qp,
+	void flow_tag_create_rules( struct ibv_qp  *qp,
                 struct ibv_flow_attr *flow_rules) {
 
                 SET(flow_create_result,ibv_create_flow(qp, flow_rules));
@@ -254,18 +252,17 @@ struct ibvt_raw_qp : public ibvt_qp {
 
         struct ibv_flow_spec* spec_info;
         struct ibv_flow_attr* attr_info;
+	struct ibv_flow_spec_action_tag* flow_tag_ptr;
 
         void* header_buff;
         int flow_rules_size;
-        int is_vxlan = 1;
+        int flow_tag = 1;
 
-        flow_rules_size = calc_flow_rules_size();
-        if (is_vxlan) {
-		flow_rules_size += sizeof(struct ibv_flow_spec_tunnel);
-		flow_rules_size += sizeof(struct ibv_flow_spec_eth);
-		flow_rules_size += sizeof(struct ibv_flow_spec_ipv4);
-		flow_rules_size += sizeof(struct ibv_flow_spec_tcp_udp);
+        flow_rules_size = flow_calc_flow_rules_size();
+	if (flow_tag) {
+		flow_rules_size += sizeof(struct ibv_flow_spec_action_tag);
 	}
+
 
         ALLOCATE(header_buff, uint8_t, flow_rules_size);
         memset(header_buff, 0, flow_rules_size);
@@ -275,14 +272,14 @@ struct ibvt_raw_qp : public ibvt_qp {
         attr_info->size = flow_rules_size;
         attr_info->priority = 0;
         attr_info->num_of_specs = 3;
-        if (is_vxlan)
-                attr_info->num_of_specs += 4;
+	if (flow_tag)
+                        attr_info->num_of_specs += 1;
 
         attr_info->flags = 0;
 
         attr_info->type = IBV_FLOW_ATTR_NORMAL;
         header_buff = (char*)header_buff + sizeof(struct ibv_flow_attr);
-        spec_info = (struct ibv_flow_spec*)header_buff;
+        spec_info = (struct ibv_flow_spec*)header_buff; //ibv_exp_flow_spec
         spec_info->eth.type = IBV_FLOW_SPEC_ETH;
         spec_info->eth.size = sizeof(struct ibv_flow_spec_eth);
         spec_info->eth.val.ether_type = 0;
@@ -331,68 +328,19 @@ struct ibvt_raw_qp : public ibvt_qp {
         spec_info->tcp_udp.val.src_port = htons(UDP_SRC_PORT);
         memset((void*)&spec_info->tcp_udp.mask.dst_port, 0xFF,sizeof(spec_info->ipv4.mask.dst_ip));
         memset((void*)&spec_info->tcp_udp.mask.src_port, 0xFF,sizeof(spec_info->ipv4.mask.src_ip));
-	if (is_vxlan) {
-		header_buff = (char*)header_buff + sizeof(struct ibv_flow_spec_tcp_udp);
-		spec_info = (struct ibv_flow_spec*)header_buff;
-		spec_info->tunnel.type = IBV_FLOW_SPEC_VXLAN_TUNNEL;
-		spec_info->tunnel.size = sizeof(struct ibv_flow_spec_tunnel);
+	if (flow_tag) {
+                        header_buff = (char*)header_buff + sizeof(struct ibv_flow_spec_tcp_udp); //TODO fix
+                        flow_tag_ptr = (struct ibv_flow_spec_action_tag*)header_buff;
+                        flow_tag_ptr->type =  IBV_FLOW_SPEC_ACTION_TAG;
+                        flow_tag_ptr->size = sizeof(struct ibv_flow_spec_action_tag);
+                        flow_tag_ptr->tag_id = 507;
+        }
 
-		spec_info->tunnel.size = sizeof(struct ibv_exp_flow_spec_tunnel);
-		spec_info->tunnel.val.tunnel_id = htonl(0x15);
-		spec_info->tunnel.mask.tunnel_id = htonl(0xffffff);
-
-		header_buff = (char*)header_buff + sizeof(struct ibv_flow_spec_tunnel);
-		spec_info = (struct ibv_flow_spec*)header_buff;
-		spec_info->eth.type = (ibv_exp_flow_spec_type)(IBV_FLOW_SPEC_ETH | IBV_FLOW_SPEC_INNER);
-		spec_info->eth.size = sizeof(struct ibv_flow_spec_eth);
-
-
-		spec_info->eth.val.dst_mac[0] = MY_DEST_MAC0;
-		spec_info->eth.val.dst_mac[1] = MY_DEST_MAC1;
-		spec_info->eth.val.dst_mac[2] = MY_DEST_MAC2;
-		spec_info->eth.val.dst_mac[3] = MY_DEST_MAC3; 
-		spec_info->eth.val.dst_mac[4] = MY_DEST_MAC4; 
-		spec_info->eth.val.dst_mac[5] = MY_DEST_MAC5; 
-		memset(spec_info->eth.mask.dst_mac, 0xFF,sizeof(spec_info->eth.mask.dst_mac));
-		spec_info->eth.val.src_mac[0] = MY_DEST_MAC7; 
-		spec_info->eth.val.src_mac[1] = MY_DEST_MAC8; 
-		spec_info->eth.val.src_mac[2] = MY_DEST_MAC9; 
-		spec_info->eth.val.src_mac[3] = MY_DEST_MAC3; 
-		spec_info->eth.val.src_mac[4] = MY_DEST_MAC4; 
-		spec_info->eth.val.src_mac[5] = MY_DEST_MAC6; 
-		memset(spec_info->eth.mask.src_mac, 0xFF,sizeof(spec_info->eth.mask.src_mac));
-
-		spec_info->eth.val.ether_type = htons(0x0800);
-		spec_info->eth.mask.ether_type = 0xffff;
-		memset((void*)&spec_info->eth.mask.ether_type, 0xFF,sizeof(spec_info->eth.mask.ether_type));
-
-		header_buff = (char*)header_buff + sizeof(struct ibv_flow_spec_eth);
-		spec_info = (struct ibv_flow_spec*)header_buff;
-		spec_info->ipv4.type = (ibv_exp_flow_spec_type)(IBV_FLOW_SPEC_IPV4 | IBV_FLOW_SPEC_INNER);
-		spec_info->ipv4.size = sizeof(struct ibv_flow_spec_ipv4);
-
-		spec_info->ipv4.val.dst_ip = htonl(IP_DEST);
-		spec_info->ipv4.val.src_ip = htonl(IP_SRC);
-		memset((void*)&spec_info->ipv4.mask.dst_ip, 0xFF,sizeof(spec_info->ipv4.mask.dst_ip));
-		memset((void*)&spec_info->ipv4.mask.src_ip, 0xFF,sizeof(spec_info->ipv4.mask.src_ip));
-
-		header_buff = (char*)header_buff + sizeof(struct ibv_flow_spec_ipv4);
-		spec_info = (struct ibv_flow_spec*)header_buff;
-		spec_info->tcp_udp.type = (ibv_exp_flow_spec_type)(IBV_FLOW_SPEC_UDP | IBV_FLOW_SPEC_INNER);
-		spec_info->tcp_udp.size = sizeof(struct ibv_flow_spec_tcp_udp);
-
-		spec_info->tcp_udp.val.dst_port = htons(UDP_DEST_PORT);
-		spec_info->tcp_udp.val.src_port = htons(UDP_SRC_PORT);
-		memset((void*)&spec_info->tcp_udp.mask.dst_port, 0xFF,sizeof(spec_info->ipv4.mask.dst_ip));
-		memset((void*)&spec_info->tcp_udp.mask.src_port, 0xFF,sizeof(spec_info->ipv4.mask.src_ip));
-
-	}
 }
 	
 	void send_raw_packet(void* buf,int match)
 	{
         	int tx_len = 0;
-        	int vxlan =1;
         	char sendbuf[BUF_SIZ];
         	struct ether_header *eh = (struct ether_header *) sendbuf;
         	struct iphdr *iph = (struct iphdr *) (sendbuf + sizeof(struct ether_header));
@@ -442,71 +390,13 @@ struct ibvt_raw_qp : public ibvt_qp {
         	udph->check = 0; // skip
         	tx_len += sizeof(struct udphdr);
 
-        	iph->check = csum((unsigned short *)(sendbuf+sizeof(struct ether_header)), sizeof(struct iphdr)/2);
-
-        	if (vxlan){
-
-                	/* Packet data */
-                	sendbuf[tx_len++] = 0x00;
-                	sendbuf[tx_len++] = 0x00;
-                	sendbuf[tx_len++] = 0x00;
-                	sendbuf[tx_len++] = 0x00;
-                	sendbuf[tx_len++] = 0x00;
-                	sendbuf[tx_len++] = 0x00;
-                	sendbuf[tx_len++] = 0x15;
-                	sendbuf[tx_len++] = 0x00;
-
-
-                	eh = (struct ether_header *) (sendbuf + sizeof(struct iphdr) + sizeof(struct ether_header) + sizeof(struct udphdr) + 8 /* vxlan size*/);
-                	/* Ethernet header */
-                	eh->ether_shost[0] = MY_DEST_MAC7;
-                	eh->ether_shost[1] = MY_DEST_MAC8;
-                	eh->ether_shost[2] = MY_DEST_MAC9;
-                	eh->ether_shost[3] = MY_DEST_MAC3;
-                	eh->ether_shost[4] = MY_DEST_MAC4;
-                	eh->ether_shost[5] = MY_DEST_MAC6;
-
-                	eh->ether_dhost[0] = MY_DEST_MAC0;
-                	eh->ether_dhost[1] = MY_DEST_MAC1;
-                	eh->ether_dhost[2] = MY_DEST_MAC2;
-                	eh->ether_dhost[3] = MY_DEST_MAC3; 
-                	eh->ether_dhost[4] = MY_DEST_MAC4; 
-                	eh->ether_dhost[5] = MY_DEST_MAC5; 
-                	/* Ethertype field */
-                	eh->ether_type = htons(ETH_P_IP);
-                	tx_len += sizeof(struct ether_header);
-	     		iph = (struct iphdr *) (sendbuf + sizeof(struct iphdr) + sizeof(struct ether_header)  + sizeof(struct udphdr) + 8 + sizeof(struct ether_header));
-                	/* IP Header */
-                	iph->ihl = 5;
-                	iph->version = 4;
-                	iph->tos = 0; // Low delay
-                	iph->id = htons(0);
-                	iph->ttl = 64; // hops
-                	iph->protocol = 17; // UDP
-                	iph->saddr = inet_addr("11.135.209.20");
-                	iph->daddr = inet_addr("11.135.209.10");
-                	iph->tot_len = sizeof(struct iphdr) + sizeof(struct udphdr) ;
-                	iph->check = csum((unsigned short *)(sendbuf + sizeof(struct iphdr) + sizeof(struct ether_header)  
-				+ sizeof(struct udphdr) + 8 + sizeof(struct ether_header)), sizeof(struct iphdr)/2);
-                	tx_len += sizeof(struct iphdr);
-
-
-                	udph = (struct udphdr *) (sendbuf + sizeof(struct iphdr) + sizeof(struct ether_header)  + sizeof(struct udphdr) + 8 
-				+ sizeof(struct ether_header) + sizeof(struct iphdr) );
-                	/* UDP Header */
-                	udph->source = htons(SRC_PORT);
-                	udph->dest = htons(DST_PORT);
-                	udph->check = 0; // skip
-                	udph->len = htons(sizeof(struct udphdr));
-                	udph->check = udp_checksum((const void*)udph,ntohs(udph->len));
-                	tx_len += sizeof(struct udphdr);
-        	}
+        	iph->check = get_csum((unsigned short *)(sendbuf+sizeof(struct ether_header)), sizeof(struct iphdr)/2);
 
         	udph = (struct udphdr *) (sendbuf + sizeof(struct iphdr) + sizeof(struct ether_header));
         	iph = (struct iphdr *) (sendbuf + sizeof(struct ether_header));
         	udph->len = htons(BUF_SIZ - sizeof(struct ether_header) - sizeof(struct iphdr));
         	iph->tot_len = htons(BUF_SIZ - sizeof(struct ether_header));
-        	udph->check = udp_checksum((const void*)udph,ntohs(udph->len));
+        	udph->check = get_udp_checksum((const void*)udph,ntohs(udph->len));
         	/* Send packet */
         	memcpy(buf,sendbuf,tx_len);
 	}
@@ -514,7 +404,7 @@ struct ibvt_raw_qp : public ibvt_qp {
 
 };
 
-struct vxlan_test : public testing::Test, public ibvt_env {
+struct flow_tag_test : public testing::Test, public ibvt_env {
 	struct ibvt_ctx_eth ctx_recv;
 	struct ibvt_ctx_eth ctx_send;
 
@@ -534,7 +424,7 @@ struct vxlan_test : public testing::Test, public ibvt_env {
         struct ibv_flow	*flow_create_result ;
         struct ibv_flow_attr	*flow_rules ;
 
-	vxlan_test() :
+	flow_tag_test() :
 		ctx_recv(*this),
 		ctx_send(*this),
 		pd_recv(*this, ctx_recv),
@@ -549,7 +439,6 @@ struct vxlan_test : public testing::Test, public ibvt_env {
 
 	virtual void SetUp() {
 
-#ifdef HAVE_VXLAN
 
 		INIT(ctx_recv.init());
 		INIT(ctx_send.init());
@@ -557,9 +446,6 @@ struct vxlan_test : public testing::Test, public ibvt_env {
 		INIT(qp_recv.init());
 		INIT(mr_recv.init());
 		INIT(mr_send.init());
-#else 
-		skip = 1;
-#endif
 
 	}
 
@@ -568,20 +454,16 @@ struct vxlan_test : public testing::Test, public ibvt_env {
 	}
 };
 
-TEST_F(vxlan_test, t0) {
+TEST_F(flow_tag_test, t0) {
 
 	int len = BUF_SIZ ;
-	CHK_SUT(Vxlan);
-#ifdef HAVE_VXLAN
+	CHK_SUT(basic);
 	EXEC(qp_recv.set_up_flow_rules(&flow_rules));
-#endif
 	EXEC(qp_recv.recv(mr_recv.sge(0, len)));
 	EXEC(qp_recv.connect());
 	EXEC(qp_send.connect());
-#ifdef HAVE_VXLAN
-	EXEC(qp_recv.vxlan_create_rules(qp_recv.qp, flow_rules));
-	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 1));
-#endif
+	EXEC(qp_recv.flow_tag_create_rules(qp_recv.qp, flow_rules));
+        EXEC(qp_send.send_raw_packet(this->mr_send.buff, 1));
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 
 	EXEC(cq_send.poll(1));
@@ -590,20 +472,16 @@ TEST_F(vxlan_test, t0) {
 
 }
 
-TEST_F(vxlan_test, t1) {
+TEST_F(flow_tag_test, t1) {
 
 	int len = BUF_SIZ ;
-	CHK_SUT(Vxlan);
-#ifdef HAVE_VXLAN
+	CHK_SUT(basic);
 	EXEC(qp_recv.set_up_flow_rules(&flow_rules));
-#endif
 	EXEC(qp_recv.recv(mr_recv.sge(0, len)));
 	EXEC(qp_recv.connect());
 	EXEC(qp_send.connect());
-#ifdef HAVE_VXLAN
-	EXEC(qp_recv.vxlan_create_rules(qp_recv.qp, flow_rules));
-	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 0));
-#endif
+	EXEC(qp_recv.flow_tag_create_rules(qp_recv.qp, flow_rules));
+        EXEC(qp_send.send_raw_packet(this->mr_send.buff, 0));
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 
 	EXEC(cq_send.poll(1));
@@ -612,30 +490,3 @@ TEST_F(vxlan_test, t1) {
 
 }
 
-TEST_F(vxlan_test, t2) {
-
-	int len = BUF_SIZ ;
-	CHK_SUT(Vxlan);
-#ifdef HAVE_VXLAN
-	EXEC(qp_recv.set_up_flow_rules(&flow_rules));
-#endif
-	EXEC(qp_recv.recv(mr_recv.sge(0, len)));
-	EXEC(qp_recv.connect());
-	EXEC(qp_send.connect());
-#ifdef HAVE_VXLAN
-	EXEC(qp_recv.vxlan_create_rules(qp_recv.qp, flow_rules));
-	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 1));
-#endif
-	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
-
-	EXEC(cq_send.poll(1));
-	EXEC(cq_recv.poll(1));
-#ifdef HAVE_VXLAN
-	EXEC(qp_recv.vxlan_destroy_rules());
-	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 0));
-#endif
-	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
-	EXEC(cq_send.poll(1));
-	EXEC(cq_recv.poll_arrive(1));
-
-}

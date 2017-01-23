@@ -116,6 +116,18 @@ if test x$cross_channel = x1; then
 	AC_DEFINE(HAVE_CROSS_CHANNEL, 1, [Cross-channel is supported])
 fi
 
+AC_CHECK_MEMBERS([struct ibv_flow_spec_tunnel.val], [Vxlan=1],
+		[Vxlan=0],
+		[[#include <infiniband/verbs.h>]])
+
+AC_CHECK_MEMBERS([struct ibv_exp_flow_spec_tunnel.val], [Vxlan_exp=1],
+		[Vxlan_exp=0],
+		[[#include <infiniband/verbs_exp.h>]])
+
+if test x$Vxlan_exp = x1 || test x$Vxlan = x1; then
+	AC_DEFINE(HAVE_VXLAN, 1, [Vxlan is supported])
+fi
+
 if test $(basename ${CC}x) = mpiccx; then
     AC_DEFINE(HAVE_MPICC, 1, [Use mpirun as a launcher])
 fi
