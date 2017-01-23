@@ -112,6 +112,10 @@ AC_CHECK_DECL([IBV_DEVICE_CROSS_CHANNEL], [cross_channel=1],
 		[cross_channel=0],
 		[[#include <infiniband/verbs.h>]])
 
+AC_CHECK_DECLS([IBV_ACCESS_HUGETLB], [hugetlb=1], [], [
+#include <infiniband/verbs.h>
+])
+
 if test x$cross_channel = x1; then
 	AC_DEFINE(HAVE_CROSS_CHANNEL, 1, [Cross-channel is supported])
 fi
