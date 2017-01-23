@@ -337,10 +337,11 @@ struct ibvt_ctx : public ibvt_obj {
 		ASSERT_EQ(val, atoi(buff)) << var;
 	}
 
-	virtual bool check_port(struct ibv_port_attr &port_attr ){
-		if (env.flags & ACTIVE)
-			if (port_attr.state != IBV_PORT_ACTIVE)
-				return true;
+	virtual bool check_port(struct ibv_port_attr &port_attr ) {
+		if (getenv("IBV_DEV") && strcmp(ibv_get_device_name(dev_list[dev]), getenv("IBV_DEV")))
+			return false;
+		if (port_attr.state == IBV_PORT_ACTIVE)
+			return true;
 		return false;
 	}
 
@@ -523,8 +524,12 @@ struct ibvt_mr : public ibvt_obj {
 		access_flags(af),
 		buff(NULL) {}
 
+	virtual int mmap_flags() {
+		return MAP_PRIVATE|MAP_ANON;
+	}
+
 	virtual void init() {
-		int flags = MAP_PRIVATE|MAP_ANON;
+		int flags = mmap_flags();
 		if (mr)
 			return;
 		EXEC(pd.init());

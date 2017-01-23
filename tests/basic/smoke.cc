@@ -84,16 +84,16 @@ struct base_test : public testing::Test, public ibvt_env {
 	}
 
 	virtual void SetUp() {
-		EXEC(ctx.init());
+		INIT(ctx.init());
 		if (skip)
 			return;
-		EXEC(send_qp.init());
-		EXEC(recv_qp.init());
-		EXEC(send_qp.connect(&recv_qp));
-		EXEC(recv_qp.connect(&send_qp));
-		EXEC(src_mr.fill());
-		EXEC(dst_mr.init());
-		EXEC(cq.arm());
+		INIT(send_qp.init());
+		INIT(recv_qp.init());
+		INIT(send_qp.connect(&recv_qp));
+		INIT(recv_qp.connect(&send_qp));
+		INIT(src_mr.fill());
+		INIT(dst_mr.init());
+		INIT(cq.arm());
 	}
 
 	virtual void TearDown() {
