@@ -550,9 +550,10 @@ struct ibvt_mr : public ibvt_obj {
 			buff[i] = i & 0xff;
 	}
 
-	virtual void check() {
-		for (size_t i = 0; i < size; i++)
-			ASSERT_EQ((char)(i & 0xff), buff[i]) << "i=" << i;
+	virtual void check(size_t skip = 0, size_t shift = 0, int repeat = 1) {
+		for (int n = 0; n < repeat; n++)
+			for (size_t i = skip + n * (size / repeat); i < size / repeat - shift; i++)
+				ASSERT_EQ((char)((i + shift) & 0xff), buff[i]) << "i=" << i;
 		memset(buff, 0, size);
 	}
 
