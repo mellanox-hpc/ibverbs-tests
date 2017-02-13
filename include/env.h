@@ -337,8 +337,8 @@ struct ibvt_ctx : public ibvt_obj {
 		ASSERT_EQ(val, atoi(buff)) << var;
 	}
 
-	virtual bool check_port(struct ibv_port_attr &port_attr ) {
-		if (getenv("IBV_DEV") && strcmp(ibv_get_device_name(dev_list[dev]), getenv("IBV_DEV")))
+	virtual bool check_port(struct ibv_device *dev, struct ibv_port_attr &port_attr ) {
+		if (getenv("IBV_DEV") && strcmp(ibv_get_device_name(dev), getenv("IBV_DEV")))
 			return false;
 		if (port_attr.state == IBV_PORT_ACTIVE)
 			return true;
@@ -361,7 +361,7 @@ struct ibvt_ctx : public ibvt_obj {
 			DO(ibv_query_device_(ctx, &dev_attr, dev_attr_orig));
 			for (int port = 1; port <= dev_attr_orig->phys_port_cnt; port++) {
 				DO(ibv_query_port(ctx, port, &port_attr));
-				if (!check_port(port_attr))
+				if (!check_port(dev_list[dev], port_attr))
 					continue;
 
 				port_num = port;
