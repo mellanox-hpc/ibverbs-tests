@@ -412,7 +412,7 @@ struct ibvt_cq : public ibvt_obj {
 
 	virtual void init_attr(struct ibv_create_cq_attr_ex &attr, int &cqe) {
 		memset(&attr, 0, sizeof(attr));
-		cqe = 64;
+		cqe = 0x1000;
 	}
 
 	virtual void init() {
@@ -625,9 +625,8 @@ struct ibvt_qp : public ibvt_obj {
 
 	virtual void init_attr(struct ibv_qp_init_attr_ex &attr) {
 		memset(&attr, 0, sizeof(attr));
-		attr.sq_sig_all = 1;
-		attr.cap.max_send_wr = 50;
-		attr.cap.max_recv_wr = 50;
+		attr.cap.max_send_wr = 0x1000;
+		attr.cap.max_recv_wr = 0x1000;
 		attr.cap.max_send_sge = 1;
 		attr.cap.max_recv_sge = 1;
 		attr.send_cq = cq.cq;
@@ -662,7 +661,7 @@ struct ibvt_qp : public ibvt_obj {
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 
-	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode) {
+	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode, enum ibv_send_flags flags = IBV_SEND_SIGNALED) {
 		struct ibv_send_wr wr;
 		struct ibv_send_wr *bad_wr = NULL;
 
@@ -672,7 +671,7 @@ struct ibvt_qp : public ibvt_obj {
 		wr.sg_list = &src_sge;
 		wr.num_sge = 1;
 		wr.opcode = opcode;
-		wr.send_flags = IBV_SEND_SIGNALED;
+		wr.send_flags = flags;
 
 		wr.wr.rdma.remote_addr = dst_sge.addr;
 		wr.wr.rdma.rkey = dst_sge.lkey;
