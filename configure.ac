@@ -87,6 +87,8 @@ fi
 
 AC_CHECK_HEADERS([infiniband/verbs_exp.h])
 
+AC_CHECK_HEADERS([infiniband/arch.h])
+
 AC_CHECK_HEADER([infiniband/peer_ops.h], [
     peerdirect=1
     AC_ARG_WITH([peer],
@@ -104,6 +106,9 @@ AC_CHECK_DECL([IBV_SRQT_TAG_MATCHING], [tag_matching=1], [], [
 #include <infiniband/verbs.h>
 ])
 AM_CONDITIONAL([TAG_MATCHING], [test x$tag_matching = x1])
+AC_CHECK_DECLS([ibv_post_srq_ops], [], [], [
+#include <infiniband/verbs.h>
+])
 
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST

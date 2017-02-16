@@ -162,7 +162,6 @@
 
 #endif
 
-#include <infiniband/arch.h>
 #include "common.h"
 
 #define EXEC(x) do { \
