@@ -249,7 +249,7 @@ struct ibvt_raw_qp : public ibvt_qp {
 
 	void set_up_flow_rules(
                 struct ibv_flow_attr **flow_rules) {
-
+#ifdef HAVE_VXLAN
         struct ibv_flow_spec* spec_info;
         struct ibv_flow_attr* attr_info;
 	struct ibv_flow_spec_action_tag* flow_tag_ptr;
@@ -335,7 +335,7 @@ struct ibvt_raw_qp : public ibvt_qp {
                         flow_tag_ptr->size = sizeof(struct ibv_flow_spec_action_tag);
                         flow_tag_ptr->tag_id = 507;
         }
-
+	#endif
 }
 	
 	void send_raw_packet(void* buf,int match)
