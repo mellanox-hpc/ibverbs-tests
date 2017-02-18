@@ -60,7 +60,11 @@ ibv_test_SOURCES +=      tests/peer-direct/smoke.cc
 endif
 
 if TAG_MATCHING
+if TAG_MATCHING_V0_2
 ibv_test_SOURCES +=	 tests/tag-matching/smoke.cc
+else
+ibv_test_SOURCES +=	 tests/tag-matching/smoke_old.cc
+endif
 endif
 
 ibv_test_SOURCES +=      tests/odp/smoke.cc

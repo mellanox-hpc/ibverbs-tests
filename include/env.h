@@ -162,7 +162,6 @@
 
 #endif
 
-#include <infiniband/arch.h>
 #include "common.h"
 
 #define EXEC(x) do { \
@@ -337,8 +336,9 @@ struct ibvt_ctx : public ibvt_obj {
 		ASSERT_EQ(val, atoi(buff)) << var;
 	}
 
-	virtual bool check_port(struct ibv_port_attr &port_attr ) {
-		if (getenv("IBV_DEV") && strcmp(ibv_get_device_name(dev_list[dev]), getenv("IBV_DEV")))
+
+	virtual bool check_port(struct ibv_device *dev, struct ibv_port_attr &port_attr ) {
+		if (getenv("IBV_DEV") && strcmp(ibv_get_device_name(dev), getenv("IBV_DEV")))
 			return false;
 		if (port_attr.state == IBV_PORT_ACTIVE)
 			return true;
@@ -361,7 +361,7 @@ struct ibvt_ctx : public ibvt_obj {
 			DO(ibv_query_device_(ctx, &dev_attr, dev_attr_orig));
 			for (int port = 1; port <= dev_attr_orig->phys_port_cnt; port++) {
 				DO(ibv_query_port(ctx, port, &port_attr));
-				if (!check_port(port_attr))
+				if (!check_port(dev_list[dev], port_attr))
 					continue;
 
 				port_num = port;
@@ -412,7 +412,7 @@ struct ibvt_cq : public ibvt_obj {
 
 	virtual void init_attr(struct ibv_create_cq_attr_ex &attr, int &cqe) {
 		memset(&attr, 0, sizeof(attr));
-		cqe = 64;
+		cqe = 0x1000;
 	}
 
 	virtual void init() {
@@ -551,9 +551,10 @@ struct ibvt_mr : public ibvt_obj {
 			buff[i] = i & 0xff;
 	}
 
-	virtual void check() {
-		for (size_t i = 0; i < size; i++)
-			ASSERT_EQ((char)(i & 0xff), buff[i]) << "i=" << i;
+	virtual void check(size_t skip = 0, size_t shift = 0, int repeat = 1) {
+		for (int n = 0; n < repeat; n++)
+			for (size_t i = skip + n * (size / repeat); i < size / repeat - shift; i++)
+				ASSERT_EQ((char)((i + shift) & 0xff), buff[i]) << "i=" << i;
 		memset(buff, 0, size);
 	}
 
@@ -625,9 +626,8 @@ struct ibvt_qp : public ibvt_obj {
 
 	virtual void init_attr(struct ibv_qp_init_attr_ex &attr) {
 		memset(&attr, 0, sizeof(attr));
-		attr.sq_sig_all = 1;
-		attr.cap.max_send_wr = 50;
-		attr.cap.max_recv_wr = 50;
+		attr.cap.max_send_wr = 0x1000;
+		attr.cap.max_recv_wr = 0x1000;
 		attr.cap.max_send_sge = 1;
 		attr.cap.max_recv_sge = 1;
 		attr.send_cq = cq.cq;
@@ -662,7 +662,7 @@ struct ibvt_qp : public ibvt_obj {
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 
-	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode) {
+	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode, enum ibv_send_flags flags = IBV_SEND_SIGNALED) {
 		struct ibv_send_wr wr;
 		struct ibv_send_wr *bad_wr = NULL;
 
@@ -672,7 +672,7 @@ struct ibvt_qp : public ibvt_obj {
 		wr.sg_list = &src_sge;
 		wr.num_sge = 1;
 		wr.opcode = opcode;
-		wr.send_flags = IBV_SEND_SIGNALED;
+		wr.send_flags = flags;
 
 		wr.wr.rdma.remote_addr = dst_sge.addr;
 		wr.wr.rdma.rkey = dst_sge.lkey;

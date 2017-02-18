@@ -30,7 +30,6 @@
 #define _IBVERBS_VERBS_TEST_
 #include "common.h"
 #include <infiniband/verbs.h>
-#include <infiniband/arch.h>
 
 /**
  * Base class for ibverbs test fixtures.

@@ -114,7 +114,8 @@ TYPED_TEST(base_test, t0) {
 	CHK_SUT(basic);
 	EXEC(recv(0, SZ));
 	EXEC(send(0, SZ));
-	EXEC(cq.poll(2));
+	EXEC(cq.poll(1));
+	EXEC(cq.poll(1));
 	EXEC(dst_mr.check());
 }
 
@@ -123,9 +124,11 @@ TYPED_TEST(base_test, t1) {
 	EXEC(recv(0, SZ/2));
 	EXEC(recv(SZ/2, SZ/2));
 	EXEC(send(0, SZ/2));
-	EXEC(cq.poll(2));
+	EXEC(cq.poll(1));
+	EXEC(cq.poll(1));
 	EXEC(send(SZ/2, SZ/2));
-	EXEC(cq.poll(2));
+	EXEC(cq.poll(1));
+	EXEC(cq.poll(1));
 	EXEC(dst_mr.check());
 }
 

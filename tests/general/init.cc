@@ -45,6 +45,9 @@ TEST(tc_ibv_get_device_list, ti_1) {
 	ibv_free_device_list(dev_list);
 }
 
+#ifdef HAVE_INFINIBAND_ARCH_H
+#include <infiniband/arch.h>
+
 /* ibv_get_device_name: [TI.1] Correct */
 TEST(tc_ibv_get_device_name, ti_1) {
 
@@ -91,3 +94,5 @@ TEST(tc_ibv_open_device, ti_1) {
 	}
 	ibv_free_device_list(dev_list);
 }
+
+#endif

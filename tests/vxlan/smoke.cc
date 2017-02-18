@@ -251,7 +251,7 @@ struct ibvt_raw_qp : public ibvt_qp {
 
 	void set_up_flow_rules(
                 struct ibv_flow_attr **flow_rules) {
-
+#ifdef HAVE_VXLAN
         struct ibv_flow_spec* spec_info;
         struct ibv_flow_attr* attr_info;
 
@@ -387,6 +387,7 @@ struct ibvt_raw_qp : public ibvt_qp {
 		memset((void*)&spec_info->tcp_udp.mask.src_port, 0xFF,sizeof(spec_info->ipv4.mask.src_ip));
 
 	}
+#endif	
 }
 	
 	void send_raw_packet(void* buf,int match)
