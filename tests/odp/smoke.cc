@@ -220,6 +220,7 @@ struct odp_prefetch : public odp_mem {
 };
 #endif
 
+
 #if HAVE_DECL_IBV_ACCESS_HUGETLB
 struct odp_hugetlb : public odp_mem {
 	odp_hugetlb(odp_side &s, odp_side &d) : odp_mem(s, d) {}
@@ -382,8 +383,6 @@ typedef testing::Types<
 	types<odp_off, odp_rdma_write>
 > odp_env_list;
 
-TYPED_TEST_CASE(odp, odp_env_list);
-
 #ifdef __x86_64__
 
 #define PAGE 0x1000
@@ -395,6 +394,8 @@ TYPED_TEST_CASE(odp, odp_env_list);
 #define UP (1ULL<<46)
 
 #endif
+
+TYPED_TEST_CASE(odp, odp_env_list);
 
 TYPED_TEST(odp, t0_crossbound) {
 	CHK_SUT(odp);
@@ -439,7 +440,7 @@ TYPED_TEST(odp, t5_3G) {
 }
 
 #ifdef HUGE_AMOUNT_OF_MEMORY
-TYPED_TEST(odp, t6_16Gplus) {
+TYPED_TEST(odp, t4_16Gplus) {
 	CHK_SUT(odp);
 	EXEC(test(0, 0,
 		  0x400000100,

@@ -336,6 +336,7 @@ struct ibvt_ctx : public ibvt_obj {
 		ASSERT_EQ(val, atoi(buff)) << var;
 	}
 
+
 	virtual bool check_port(struct ibv_device *dev, struct ibv_port_attr &port_attr ) {
 		if (getenv("IBV_DEV") && strcmp(ibv_get_device_name(dev), getenv("IBV_DEV")))
 			return false;
