@@ -75,6 +75,7 @@
 #define ibv_flow_spec_tunnel	ibv_exp_flow_spec_tunnel
 #define IBV_FLOW_SPEC_INNER	IBV_EXP_FLOW_SPEC_INNER
 #define ibv_flow		ibv_exp_flow
+#define ibv_flow_spec_type	ibv_exp_flow_spec_type
 
 #define IBV_FLOW_SPEC_ACTION_TAG	IBV_EXP_FLOW_SPEC_ACTION_TAG
 #define ibv_flow_spec_action_tag	ibv_exp_flow_spec_action_tag
