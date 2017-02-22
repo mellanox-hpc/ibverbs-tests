@@ -85,9 +85,9 @@ AC_CHECK_HEADER(valgrind/memcheck.h,
     fi])
 fi
 
-AC_CHECK_HEADERS([infiniband/verbs_exp.h])
+AC_CHECK_DECLS([htobe64], [], [], [])
 
-AC_CHECK_HEADERS([infiniband/arch.h])
+AC_CHECK_HEADERS([infiniband/verbs_exp.h])
 
 AC_CHECK_HEADER([infiniband/peer_ops.h], [
     peerdirect=1
