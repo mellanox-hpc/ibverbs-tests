@@ -32,6 +32,11 @@
 
 #include "verbs_test.h"
 
+#if (!HAVE_DECL_HTOBE64)
+#include <infiniband/arch.h>
+#define be64toh ntohll
+#endif
+
 /* ibv_get_device_list: [TI.1] Correct */
 TEST(tc_ibv_get_device_list, ti_1) {
 
@@ -44,9 +49,6 @@ TEST(tc_ibv_get_device_list, ti_1) {
 
 	ibv_free_device_list(dev_list);
 }
-
-#ifdef HAVE_INFINIBAND_ARCH_H
-#include <infiniband/arch.h>
 
 /* ibv_get_device_name: [TI.1] Correct */
 TEST(tc_ibv_get_device_name, ti_1) {
@@ -62,7 +64,7 @@ TEST(tc_ibv_get_device_name, ti_1) {
 	for (i = 0; i < num_devices; ++i) {
 		VERBS_INFO("    %-16s\t%016llx\n",
 		       ibv_get_device_name(dev_list[i]),
-		       (unsigned long long) ntohll(ibv_get_device_guid(dev_list[i])));
+		       (unsigned long long) be64toh(ibv_get_device_guid(dev_list[i])));
 	}
 
 	ibv_free_device_list(dev_list);
@@ -89,10 +91,8 @@ TEST(tc_ibv_open_device, ti_1) {
 
 		VERBS_INFO("    %-16s\t%016llx\n",
 		       ibv_get_device_name(dev_list[i]),
-		       (unsigned long long) ntohll(ibv_get_device_guid(dev_list[i])));
+		       (unsigned long long) be64toh(ibv_get_device_guid(dev_list[i])));
 		       ibv_close_device(ibv_ctx);
 	}
 	ibv_free_device_list(dev_list);
 }
-
-#endif

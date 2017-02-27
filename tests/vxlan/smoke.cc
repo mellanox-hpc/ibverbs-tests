@@ -337,13 +337,12 @@ struct ibvt_raw_qp : public ibvt_qp {
 		spec_info->tunnel.type = IBV_FLOW_SPEC_VXLAN_TUNNEL;
 		spec_info->tunnel.size = sizeof(struct ibv_flow_spec_tunnel);
 
-		spec_info->tunnel.size = sizeof(struct ibv_exp_flow_spec_tunnel);
 		spec_info->tunnel.val.tunnel_id = htonl(0x15);
 		spec_info->tunnel.mask.tunnel_id = htonl(0xffffff);
 
 		header_buff = (char*)header_buff + sizeof(struct ibv_flow_spec_tunnel);
 		spec_info = (struct ibv_flow_spec*)header_buff;
-		spec_info->eth.type = (ibv_exp_flow_spec_type)(IBV_FLOW_SPEC_ETH | IBV_FLOW_SPEC_INNER);
+		spec_info->eth.type = (ibv_flow_spec_type)(IBV_FLOW_SPEC_ETH | IBV_FLOW_SPEC_INNER);
 		spec_info->eth.size = sizeof(struct ibv_flow_spec_eth);
 
 
@@ -368,7 +367,7 @@ struct ibvt_raw_qp : public ibvt_qp {
 
 		header_buff = (char*)header_buff + sizeof(struct ibv_flow_spec_eth);
 		spec_info = (struct ibv_flow_spec*)header_buff;
-		spec_info->ipv4.type = (ibv_exp_flow_spec_type)(IBV_FLOW_SPEC_IPV4 | IBV_FLOW_SPEC_INNER);
+		spec_info->ipv4.type = (ibv_flow_spec_type)(IBV_FLOW_SPEC_IPV4 | IBV_FLOW_SPEC_INNER);
 		spec_info->ipv4.size = sizeof(struct ibv_flow_spec_ipv4);
 
 		spec_info->ipv4.val.dst_ip = htonl(IP_DEST);
@@ -378,7 +377,7 @@ struct ibvt_raw_qp : public ibvt_qp {
 
 		header_buff = (char*)header_buff + sizeof(struct ibv_flow_spec_ipv4);
 		spec_info = (struct ibv_flow_spec*)header_buff;
-		spec_info->tcp_udp.type = (ibv_exp_flow_spec_type)(IBV_FLOW_SPEC_UDP | IBV_FLOW_SPEC_INNER);
+		spec_info->tcp_udp.type = (ibv_flow_spec_type)(IBV_FLOW_SPEC_UDP | IBV_FLOW_SPEC_INNER);
 		spec_info->tcp_udp.size = sizeof(struct ibv_flow_spec_tcp_udp);
 
 		spec_info->tcp_udp.val.dst_port = htons(UDP_DEST_PORT);
