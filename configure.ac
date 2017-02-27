@@ -87,6 +87,7 @@ fi
 
 AC_CHECK_DECLS([htobe64], [], [], [])
 
+
 AC_CHECK_HEADERS([infiniband/verbs_exp.h])
 
 AC_CHECK_HEADER([infiniband/peer_ops.h], [
@@ -110,6 +111,14 @@ AC_CHECK_DECLS([ibv_post_srq_ops], [tag_matching_2=1], [], [
 #include <infiniband/verbs.h>
 ])
 AM_CONDITIONAL([TAG_MATCHING_V0_2], [test x$tag_matching_2 = x1])
+
+AC_CHECK_DECLS([ibv_prefetch_mr], [], [], [
+#include <infiniband/verbs.h>
+])
+
+AC_CHECK_DECLS([ibv_exp_prefetch_mr], [], [], [
+#include <infiniband/verbs_exp.h>
+])
 
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST

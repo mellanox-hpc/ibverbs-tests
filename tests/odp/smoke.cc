@@ -47,6 +47,15 @@
 
 #include "env.h"
 
+#if HAVE_DECL_IBV_PREFETCH_MR
+#define HAVE_PREFETCH
+#define IBV_EXP_PREFETCH_WRITE_ACCESS 0
+#elif HAVE_DECL_IBV_EXP_PREFETCH_MR
+#define HAVE_PREFETCH
+#define ibv_prefetch_attr ibv_exp_prefetch_attr
+#define ibv_prefetch_mr ibv_exp_prefetch_mr
+#endif
+
 struct ibvt_mr_implicit : public ibvt_mr {
 	ibvt_mr_implicit(ibvt_env &e, ibvt_pd &p, long a) :
 		ibvt_mr(e, p, 0, 0, a) {}
@@ -59,7 +68,7 @@ struct ibvt_mr_implicit : public ibvt_mr {
 	}
 };
 
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#ifdef HAVE_PREFETCH
 struct ibvt_mr_pf : public ibvt_mr {
 	ibvt_mr_pf(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a, long af) :
 		ibvt_mr(e, p, s, a, af) {}
@@ -67,13 +76,13 @@ struct ibvt_mr_pf : public ibvt_mr {
 	virtual void init() {
 		EXEC(ibvt_mr::init());
 
-		struct ibv_exp_prefetch_attr attr;
+		struct ibv_prefetch_attr attr;
 
 		attr.flags = IBV_EXP_PREFETCH_WRITE_ACCESS;
 		attr.addr = buff;
 		attr.length = size;
 		attr.comp_mask = 0;
-		DO(ibv_exp_prefetch_mr(mr, &attr));
+		DO(ibv_prefetch_mr(mr, &attr));
 	}
 };
 #endif
@@ -209,7 +218,7 @@ struct odp_explicit : public odp_mem {
 	}
 };
 
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#ifdef HAVE_PREFETCH
 struct odp_prefetch : public odp_mem {
 	odp_prefetch(odp_side &s, odp_side &d) : odp_mem(s, d) {}
 
@@ -364,7 +373,7 @@ typedef testing::Types<
 	types<odp_explicit, odp_send>,
 	types<odp_explicit, odp_rdma_read>,
 	types<odp_explicit, odp_rdma_write>,
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#ifdef HAVE_PREFETCH
 	types<odp_prefetch, odp_send>,
 	types<odp_prefetch, odp_rdma_read>,
 	types<odp_prefetch, odp_rdma_write>,
