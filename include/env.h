@@ -50,84 +50,84 @@
 #ifdef HAVE_INFINIBAND_VERBS_EXP_H
 #include <infiniband/verbs_exp.h>
 
-#define ibv_flow_attr	  		ibv_exp_flow_attr
-#define ibv_flow_spec_eth		ibv_exp_flow_spec_eth
-#define ibv_flow			ibv_exp_flow
-#define ibv_flow_attr			ibv_exp_flow_attr
-#define ibv_create_flow			ibv_exp_create_flow
-#define ibv_destroy_flow		ibv_exp_destroy_flow
-#define ibv_flow_attr		ibv_exp_flow_attr
-#define ibv_flow_spec	ibv_exp_flow_spec
-#define ibv_flow_attr	ibv_exp_flow_attr
-#define ibv_flow_spec_tunnel 	ibv_exp_flow_spec_tunnel
-#define ibv_flow_spec_eth	ibv_exp_flow_spec_eth
-#define ibv_flow_spec_ipv4	ibv_exp_flow_spec_ipv4
-#define ibv_flow_spec_tcp_udp 	ibv_exp_flow_spec_tcp_udp
-#define ibv_flow_attr	ibv_exp_flow_attr
-#define IBV_FLOW_ATTR_NORMAL	IBV_EXP_FLOW_ATTR_NORMAL
-#define ibv_flow_attr	ibv_exp_flow_attr
-#define ibv_flow_spec	ibv_exp_flow_spec
-#define IBV_FLOW_SPEC_ETH	IBV_EXP_FLOW_SPEC_ETH
-#define ibv_flow_spec_eth	ibv_exp_flow_spec_eth
-#define IBV_FLOW_SPEC_IPV4	IBV_EXP_FLOW_SPEC_IPV4
-#define IBV_FLOW_SPEC_UDP	IBV_EXP_FLOW_SPEC_UDP
-#define IBV_FLOW_SPEC_VXLAN_TUNNEL IBV_EXP_FLOW_SPEC_VXLAN_TUNNEL
-#define ibv_flow_spec_tunnel	ibv_exp_flow_spec_tunnel
-#define IBV_FLOW_SPEC_INNER	IBV_EXP_FLOW_SPEC_INNER
-#define ibv_flow		ibv_exp_flow
-#define ibv_flow_spec_type	ibv_exp_flow_spec_type
+#define ibv_flow_attr		       ibv_exp_flow_attr
+#define ibv_flow_spec_eth	       ibv_exp_flow_spec_eth
+#define ibv_flow		       ibv_exp_flow
+#define ibv_flow_attr		       ibv_exp_flow_attr
+#define ibv_create_flow		       ibv_exp_create_flow
+#define ibv_destroy_flow	       ibv_exp_destroy_flow
+#define ibv_flow_attr		       ibv_exp_flow_attr
+#define ibv_flow_spec		       ibv_exp_flow_spec
+#define ibv_flow_attr		       ibv_exp_flow_attr
+#define ibv_flow_spec_tunnel	       ibv_exp_flow_spec_tunnel
+#define ibv_flow_spec_eth	       ibv_exp_flow_spec_eth
+#define ibv_flow_spec_ipv4	       ibv_exp_flow_spec_ipv4
+#define ibv_flow_spec_tcp_udp	       ibv_exp_flow_spec_tcp_udp
+#define ibv_flow_attr		       ibv_exp_flow_attr
+#define IBV_FLOW_ATTR_NORMAL	       IBV_EXP_FLOW_ATTR_NORMAL
+#define ibv_flow_attr		       ibv_exp_flow_attr
+#define ibv_flow_spec		       ibv_exp_flow_spec
+#define IBV_FLOW_SPEC_ETH	       IBV_EXP_FLOW_SPEC_ETH
+#define ibv_flow_spec_eth	       ibv_exp_flow_spec_eth
+#define IBV_FLOW_SPEC_IPV4	       IBV_EXP_FLOW_SPEC_IPV4
+#define IBV_FLOW_SPEC_UDP	       IBV_EXP_FLOW_SPEC_UDP
+#define IBV_FLOW_SPEC_VXLAN_TUNNEL     IBV_EXP_FLOW_SPEC_VXLAN_TUNNEL
+#define ibv_flow_spec_tunnel	       ibv_exp_flow_spec_tunnel
+#define IBV_FLOW_SPEC_INNER	       IBV_EXP_FLOW_SPEC_INNER
+#define ibv_flow		       ibv_exp_flow
+#define ibv_flow_spec_type	       ibv_exp_flow_spec_type
 
-#define IBV_FLOW_SPEC_ACTION_TAG	IBV_EXP_FLOW_SPEC_ACTION_TAG
-#define ibv_flow_spec_action_tag	ibv_exp_flow_spec_action_tag
+#define IBV_FLOW_SPEC_ACTION_TAG       IBV_EXP_FLOW_SPEC_ACTION_TAG
+#define ibv_flow_spec_action_tag       ibv_exp_flow_spec_action_tag
 
-#define ibv_peer_commit			 ibv_exp_peer_commit
-#define ibv_peer_commit_qp		 ibv_exp_peer_commit_qp
+#define ibv_peer_commit		       ibv_exp_peer_commit
+#define ibv_peer_commit_qp	       ibv_exp_peer_commit_qp
 
-#define ibv_create_qp_ex		 ibv_exp_create_qp
-#define ibv_qp_init_attr_ex		 ibv_exp_qp_init_attr
-#define ibv_create_cq_attr_ex		 ibv_exp_cq_init_attr
+#define ibv_create_qp_ex	       ibv_exp_create_qp
+#define ibv_qp_init_attr_ex	       ibv_exp_qp_init_attr
+#define ibv_create_cq_attr_ex	       ibv_exp_cq_init_attr
 
-#define IBV_QP_INIT_ATTR_PD		 IBV_EXP_QP_INIT_ATTR_PD
-#define IBV_QP_INIT_ATTR_PEER_DIRECT	 IBV_EXP_QP_INIT_ATTR_PEER_DIRECT
-#define IBV_CREATE_CQ_ATTR_PEER_DIRECT	 IBV_EXP_CQ_INIT_ATTR_PEER_DIRECT
+#define IBV_QP_INIT_ATTR_PD	       IBV_EXP_QP_INIT_ATTR_PD
+#define IBV_QP_INIT_ATTR_PEER_DIRECT   IBV_EXP_QP_INIT_ATTR_PEER_DIRECT
+#define IBV_CREATE_CQ_ATTR_PEER_DIRECT IBV_EXP_CQ_INIT_ATTR_PEER_DIRECT
 
-#define IBV_PEER_OP_FENCE		 IBV_EXP_PEER_OP_FENCE
-#define IBV_PEER_OP_STORE_DWORD		 IBV_EXP_PEER_OP_STORE_DWORD
-#define IBV_PEER_OP_STORE_QWORD		 IBV_EXP_PEER_OP_STORE_QWORD
-#define IBV_PEER_OP_POLL_AND_DWORD	 IBV_EXP_PEER_OP_POLL_AND_DWORD
-#define IBV_PEER_OP_POLL_NOR_DWORD	 IBV_EXP_PEER_OP_POLL_NOR_DWORD
-#define IBV_PEER_OP_POLL_GEQ_DWORD	 IBV_EXP_PEER_OP_POLL_NOR_DWORD
+#define IBV_PEER_OP_FENCE	       IBV_EXP_PEER_OP_FENCE
+#define IBV_PEER_OP_STORE_DWORD	       IBV_EXP_PEER_OP_STORE_DWORD
+#define IBV_PEER_OP_STORE_QWORD	       IBV_EXP_PEER_OP_STORE_QWORD
+#define IBV_PEER_OP_POLL_AND_DWORD     IBV_EXP_PEER_OP_POLL_AND_DWORD
+#define IBV_PEER_OP_POLL_NOR_DWORD     IBV_EXP_PEER_OP_POLL_NOR_DWORD
+#define IBV_PEER_OP_POLL_GEQ_DWORD     IBV_EXP_PEER_OP_POLL_NOR_DWORD
 
-#define IBV_PEER_OP_FENCE_CAP		 IBV_EXP_PEER_OP_FENCE_CAP
-#define IBV_PEER_OP_STORE_DWORD_CAP	 IBV_EXP_PEER_OP_STORE_DWORD_CAP
-#define IBV_PEER_OP_STORE_QWORD_CAP	 IBV_EXP_PEER_OP_STORE_QWORD_CAP
-#define IBV_PEER_OP_POLL_AND_DWORD_CAP	 IBV_EXP_PEER_OP_POLL_AND_DWORD_CAP
-#define IBV_PEER_OP_POLL_NOR_DWORD_CAP	 IBV_EXP_PEER_OP_POLL_NOR_DWORD_CAP
+#define IBV_PEER_OP_FENCE_CAP	       IBV_EXP_PEER_OP_FENCE_CAP
+#define IBV_PEER_OP_STORE_DWORD_CAP    IBV_EXP_PEER_OP_STORE_DWORD_CAP
+#define IBV_PEER_OP_STORE_QWORD_CAP    IBV_EXP_PEER_OP_STORE_QWORD_CAP
+#define IBV_PEER_OP_POLL_AND_DWORD_CAP IBV_EXP_PEER_OP_POLL_AND_DWORD_CAP
+#define IBV_PEER_OP_POLL_NOR_DWORD_CAP IBV_EXP_PEER_OP_POLL_NOR_DWORD_CAP
 
-#define IBV_PEER_FENCE_CPU_TO_HCA	 IBV_EXP_PEER_FENCE_CPU_TO_HCA
-#define IBV_PEER_FENCE_PEER_TO_HCA	 IBV_EXP_PEER_FENCE_PEER_TO_HCA
-#define IBV_PEER_FENCE_PEER_TO_CPU	 IBV_EXP_PEER_FENCE_PEER_TO_CPU
-#define IBV_PEER_FENCE_HCA_TO_PEER	 IBV_EXP_PEER_FENCE_HCA_TO_PEER
+#define IBV_PEER_FENCE_CPU_TO_HCA      IBV_EXP_PEER_FENCE_CPU_TO_HCA
+#define IBV_PEER_FENCE_PEER_TO_HCA     IBV_EXP_PEER_FENCE_PEER_TO_HCA
+#define IBV_PEER_FENCE_PEER_TO_CPU     IBV_EXP_PEER_FENCE_PEER_TO_CPU
+#define IBV_PEER_FENCE_HCA_TO_PEER     IBV_EXP_PEER_FENCE_HCA_TO_PEER
 
-#define ibv_peer_direct_attr		 ibv_exp_peer_direct_attr
-#define ibv_peer_direction		 ibv_exp_peer_direction
-#define ibv_peer_op			 ibv_exp_peer_op
+#define ibv_peer_direct_attr	       ibv_exp_peer_direct_attr
+#define ibv_peer_direction	       ibv_exp_peer_direction
+#define ibv_peer_op		       ibv_exp_peer_op
 
-#define IBV_ROLLBACK_ABORT_UNCOMMITED    IBV_EXP_ROLLBACK_ABORT_UNCOMMITED
-#define IBV_ROLLBACK_ABORT_LATE		 IBV_EXP_ROLLBACK_ABORT_LATE
+#define IBV_ROLLBACK_ABORT_UNCOMMITED  IBV_EXP_ROLLBACK_ABORT_UNCOMMITED
+#define IBV_ROLLBACK_ABORT_LATE	       IBV_EXP_ROLLBACK_ABORT_LATE
 
-#define ibv_rollback_ctx		 ibv_exp_rollback_ctx
-#define ibv_rollback_qp			 ibv_exp_rollback_qp
-#define ibv_peer_peek			 ibv_exp_peer_peek
-#define ibv_peer_peek_cq		 ibv_exp_peer_peek_cq
-#define ibv_peer_abort_peek		 ibv_exp_peer_abort_peek
-#define ibv_peer_abort_peek_cq		 ibv_exp_peer_abort_peek_cq
+#define ibv_rollback_ctx	       ibv_exp_rollback_ctx
+#define ibv_rollback_qp		       ibv_exp_rollback_qp
+#define ibv_peer_peek		       ibv_exp_peer_peek
+#define ibv_peer_peek_cq	       ibv_exp_peer_peek_cq
+#define ibv_peer_abort_peek	       ibv_exp_peer_abort_peek
+#define ibv_peer_abort_peek_cq	       ibv_exp_peer_abort_peek_cq
 
-#define IBV_PEER_DIRECTION_FROM_CPU	 IBV_EXP_PEER_DIRECTION_FROM_CPU
-#define IBV_PEER_DIRECTION_FROM_HCA	 IBV_EXP_PEER_DIRECTION_FROM_HCA
+#define IBV_PEER_DIRECTION_FROM_CPU    IBV_EXP_PEER_DIRECTION_FROM_CPU
+#define IBV_PEER_DIRECTION_FROM_HCA    IBV_EXP_PEER_DIRECTION_FROM_HCA
 
-#define ibv_peer_buf			 ibv_exp_peer_buf
-#define ibv_peer_buf_alloc_attr		 ibv_exp_peer_buf_alloc_attr
+#define ibv_peer_buf		       ibv_exp_peer_buf
+#define ibv_peer_buf_alloc_attr	       ibv_exp_peer_buf_alloc_attr
 
 #define ibv_create_cq_ex_(ctx, attr, n, ch) \
 		ibv_exp_create_cq(ctx, n, NULL, ch, 0, attr)
@@ -155,6 +155,7 @@
 #define ibv_create_cq_ex_(ctx, attr, n, ch) ({ \
 		(attr)->cqe = n; \
 		(attr)->channel = ch; \
+		(attr)->wc_flags = IBV_CREATE_CQ_SUP_WC_FLAGS; \
 		ibv_cq_ex_to_cq(ibv_create_cq_ex(ctx, attr)); })
 
 #define ibv_query_device_(ctx, attr, attr2) ({ \

@@ -65,13 +65,13 @@
 #define IBV_WC_RECV_RDMA_WITH_IMM IBV_EXP_WC_RECV_RDMA_WITH_IMM
 #define IBV_WC_SEND IBV_EXP_WC_SEND
 #define ibv_wr_opcode ibv_exp_wr_opcode
-#define IBV_WR_TAG_APPEND IBV_EXP_WR_TAG_APPEND
-#define IBV_WR_TAG_REMOVE IBV_EXP_WR_TAG_REMOVE
+#define IBV_WR_SEND IBV_EXP_WR_SEND
+#define IBV_WR_TAG_ADD IBV_EXP_WR_TAG_ADD
+#define IBV_WR_TAG_DEL IBV_EXP_WR_TAG_DEL
 #define IBV_WR_TAG_SEND_EAGER IBV_EXP_WR_TAG_SEND_EAGER
 #define IBV_WR_TAG_SEND_EAGER_WITH_IMM IBV_EXP_WR_TAG_SEND_EAGER_WITH_IMM
 #define IBV_WR_TAG_SEND_NO_TAG IBV_EXP_WR_TAG_SEND_NO_TAG
 #define IBV_WR_TAG_SEND_RNDV IBV_EXP_WR_TAG_SEND_RNDV
-#define opcode exp_opcode
 #define send_flags exp_send_flags
 #define IBV_WC_TM_RECV IBV_EXP_WC_TM_RECV
 #define IBV_WC_TM_UNEXP IBV_EXP_WC_TM_UNEXP
@@ -82,9 +82,24 @@
 #define IBV_WC_TM_RECV_CONSUMED_RNDV IBV_EXP_WC_TM_RECV_CONSUMED_RNDV
 #define IBV_WC_TM_RECV_CONSUMED_SW_RNDV IBV_EXP_WC_TM_RECV_CONSUMED_SW_RNDV
 #define IBV_WC_TM_NO_TAG IBV_EXP_WC_TM_NO_TAG
-#define IBV_WC_TM_APPEND IBV_EXP_WC_TM_APPEND
-#define IBV_WC_TM_REMOVE IBV_EXP_WC_TM_REMOVE
+#define IBV_WC_TM_ADD IBV_EXP_WC_TM_ADD
+#define IBV_WC_TM_DEL IBV_EXP_WC_TM_DEL
+#define IBV_WC_TM_SYNC IBV_EXP_WC_TM_SYNC
 #define IBV_WC_TM_NOOP IBV_EXP_WC_TM_NOOP
+#define ibv_ops_wr ibv_exp_ops_wr
+#define IBV_OPS_SIGNALED IBV_EXP_OPS_SIGNALED
+#define IBV_OPS_TM_SYNC IBV_EXP_OPS_TM_SYNC
+#define ibv_post_srq_ops ibv_exp_post_srq_ops
+#define ibv_tmh ibv_exp_tmh
+#define ibv_tmh_rvh ibv_exp_tmh_rvh
+#define IBV_TMH_EAGER IBV_EXP_TMH_EAGER
+#define IBV_TMH_RNDV IBV_EXP_TMH_RNDV
+#define IBV_TMH_NO_TAG IBV_EXP_TMH_NO_TAG
+#define IBV_WC_TM_MATCH IBV_EXP_WC_TM_MATCH
+#define IBV_WC_TM_DATA_VALID IBV_EXP_WC_TM_DATA_VALID
+
+#else
+#define exp_opcode opcode
 #endif
 
 #define DEF_ibv_wc_opcode \
@@ -99,9 +114,9 @@
 	DEF_ENUM_ELEM(IBV_WC_RECV_RDMA_WITH_IMM) \
 	DEF_ENUM_ELEM(IBV_WC_TM_RECV) \
 	DEF_ENUM_ELEM(IBV_WC_TM_NO_TAG) \
-	DEF_ENUM_ELEM(IBV_WC_TM_APPEND) \
-	DEF_ENUM_ELEM(IBV_WC_TM_REMOVE) \
-	DEF_ENUM_ELEM(IBV_WC_TM_NOOP)
+	DEF_ENUM_ELEM(IBV_WC_TM_ADD) \
+	DEF_ENUM_ELEM(IBV_WC_TM_DEL) \
+	DEF_ENUM_ELEM(IBV_WC_TM_SYNC)
 #define OLD_TM_ARCH_ibv_wc_opcode \
 	DEF_ENUM_ELEM(IBV_WC_TM_UNEXP) \
 	DEF_ENUM_ELEM(IBV_WC_TM_CONSUMED_EAGER) \
@@ -139,6 +154,7 @@ struct ibvt_srq : public ibvt_obj {
 	}
 
 	virtual void init() {
+#if 0
 		struct ibv_srq_init_attr_ex attr;
 
 		EXEC(pd.init());
@@ -152,12 +168,36 @@ struct ibvt_srq : public ibvt_obj {
 		attr.srq_type = IBV_SRQT_TAG_MATCHING;
 		attr.pd = pd.pd;
 		attr.cq = cq.cq;
-		attr.tm_cap.max_tm_ops = 10;
-		attr.tm_cap.max_num_tags = 64;
+		attr.tm_cap.max_ops = 10;
+		attr.tm_cap.max_num_tags = 63;
 		attr.attr.max_wr  = 128;
 		attr.attr.max_sge = 1;
 
 		SET(srq, ibv_create_srq_ex(pd.ctx.ctx, &attr));
+#else
+		struct ibv_exp_create_srq_attr attr;
+
+		EXEC(pd.init());
+		EXEC(cq.init());
+
+		attr.comp_mask =
+			IBV_EXP_CREATE_SRQ_CQ |
+			IBV_EXP_CREATE_SRQ_TM;
+		//attr.srq_type = IBV_EXP_SRQT_BASIC;
+		attr.srq_type = IBV_EXP_SRQT_TAG_MATCHING;
+		attr.pd = pd.pd;
+		attr.cq = cq.cq;
+		attr.tm_cap.max_ops = 10;
+		attr.tm_cap.max_num_tags = 63;
+		attr.base.attr.max_wr  = 128;
+		attr.base.attr.max_sge = 1;
+
+		SET(srq, ibv_exp_create_srq(pd.ctx.ctx, &attr));
+		//attr.base.attr.srq_limit = 64;
+		//DO(ibv_modify_srq(srq, &attr.base.attr, IBV_SRQ_LIMIT));
+		//DO(ibv_query_srq(srq, &attr.base.attr));
+		//VERBS_INFO("%d\n", attr.base.attr.max_wr, attr.base.attr.srq_limit);
+#endif
 	}
 
 	virtual void unexp(ibvt_mr &mr, int start, int length) {
@@ -181,13 +221,14 @@ struct ibvt_srq : public ibvt_obj {
 		struct ibv_ops_wr *bad_wr = NULL;
 
 		memset(&wr, 0, sizeof(wr));
-		wr.sg_list = &sge;
-		wr.num_sge = 1;
-		wr.flags = IBV_SEND_SIGNALED;
-		wr.opcode = IBV_WR_TAG_APPEND;
+		wr.flags = IBV_OPS_SIGNALED | IBV_OPS_TM_SYNC;
+		wr.opcode = IBV_WR_TAG_ADD;
 
-		wr.tm.tag.tag = tag;
-		wr.tm.mask.tag	= 0xffffffffffffffff;
+		wr.tm.add.recv_wr_id = tag;
+		wr.tm.add.sg_list = &sge;
+		wr.tm.add.num_sge = 1;
+		wr.tm.add.tag = tag;
+		wr.tm.add.mask = 0xffffffffffffffff;
 		wr.tm.unexpected_cnt = tm.phase_cnt;
 
 		DO(ibv_post_srq_ops(srq, &wr, &bad_wr));
@@ -202,8 +243,8 @@ struct ibvt_srq : public ibvt_obj {
 		struct ibv_ops_wr *bad_wr = NULL;
 
 		memset(&wr, 0, sizeof(wr));
-		wr.flags = IBV_SEND_SIGNALED;
-		wr.opcode = IBV_WR_TAG_REMOVE;
+		wr.flags = IBV_OPS_SIGNALED;
+		wr.opcode = IBV_WR_TAG_DEL;
 		wr.tm.handle = idx;
 
 		DO(ibv_post_srq_ops(srq, &wr, &bad_wr));
@@ -223,22 +264,18 @@ struct ibvt_qp_tm : public ibvt_qp_rc {
 		attr.cap.max_inline_data = 0x80;
 	}
 
-	virtual void send(ibv_sge sge,
-			  uint64_t tag,
-			  enum ibv_tm_op op)
+	virtual void send(ibv_sge sge, uint64_t tag, int op)
 	{
 		struct ibv_send_wr wr;
 		struct ibv_send_wr *bad_wr = NULL;
-		struct ibv_tm_info tm;
+		struct ibv_tmh *tmh = (ibv_tmh *)sge.addr;
 
-		memset(&tm, 0 ,sizeof(tm));
-		tm.op = op;
-		tm.tag.tag = tag;
-		ASSERT_GE(ibv_pack_tm_info(ctx.ctx, (void*)sge.addr, &tm), 1);
+		tmh->opcode = op;
+		tmh->tag = htobe64(tag);
 
 		memset(&wr, 0, sizeof(wr));
 		wr.send_flags = IBV_SEND_SIGNALED;
-		wr.opcode = IBV_WR_SEND;
+		wr.exp_opcode = IBV_WR_SEND;
 		wr.num_sge = 1;
 		wr.sg_list = &sge;
 		wr.wr_id = 0x12345;
@@ -252,22 +289,22 @@ struct ibvt_qp_tm : public ibvt_qp_rc {
 		struct ibv_send_wr *bad_wr = NULL;
 		ibvt_mr hdr(env, pd, 0x20);
 		struct ibv_sge sge_hdr;
-		struct ibv_tm_info tm;
+		struct ibv_tmh *tmh;
+		struct ibv_tmh_rvh *rvh;
 
 		hdr.init();
+		tmh = (ibv_tmh *)hdr.sge().addr;
+		rvh = (ibv_tmh_rvh *)(tmh + 1);
 
-		memset(&tm, 0 ,sizeof(tm));
-		tm.op = IBV_TM_OP_RNDV;
-		tm.tag.tag = tag;
-		tm.rndv.remote_mkey = sge.lkey;
-		tm.rndv.buffer_vaddr = sge.addr;
-		tm.rndv.buffer_len = sge.length;
-		ASSERT_GE(ibv_pack_tm_info(ctx.ctx, (void*)hdr.buff, &tm), 1);
-		//hdr.dump();
+		tmh->opcode = IBV_TMH_RNDV;
+		tmh->tag = htobe64(tag);
+		rvh->rkey = htobe32(sge.lkey);
+		rvh->va = htobe64(sge.addr);
+		rvh->len = htobe32(sge.length);
 
 		memset(&wr, 0, sizeof(wr));
 		wr.send_flags = IBV_SEND_SIGNALED;
-		wr.opcode = IBV_WR_SEND;
+		wr.exp_opcode = IBV_WR_SEND;
 		wr.num_sge = 1;
 		sge_hdr = hdr.sge();
 		wr.sg_list = &sge_hdr;
@@ -286,7 +323,6 @@ struct ibvt_qp_srq : public ibvt_qp_rc {
 	virtual void init_attr(struct ibv_qp_init_attr_ex &attr)
 	{
 		ibvt_qp_rc::init_attr(attr);
-		attr.recv_cq = NULL;
 		attr.srq = srq.srq;
 	}
 
@@ -303,6 +339,8 @@ struct ibvt_qp_rndv : public ibvt_qp_srq {
 	}
 };
 
+#if HAVE_DECL_IBV_EXP_POST_SRQ_OPS
+
 struct ibvt_cq_tm : public ibvt_cq {
 	tag_matching_base &tm;
 
@@ -310,7 +348,7 @@ struct ibvt_cq_tm : public ibvt_cq {
 
 	virtual void poll(int n) {
 		struct ibv_wc wc = {};
-		int result = 0, retries = POLL_RETRIES;
+		long result = 0, retries = 32L * POLL_RETRIES;
 
 		VERBS_TRACE("%d.%p polling...\n", __LINE__, this);
 
@@ -320,13 +358,13 @@ struct ibvt_cq_tm : public ibvt_cq {
 		}
 		ASSERT_GT(retries,0) << "errno: " << errno;
 
-		if (wc.opcode == IBV_WC_TM_RECV && !(wc.wc_flags & (IBV_WC_TM_MATCH | IBV_WC_TM_DATA_VALID)))
+		if (wc.exp_opcode == IBV_WC_TM_RECV && !(wc.exp_wc_flags & (IBV_WC_TM_MATCH | IBV_WC_TM_DATA_VALID)))
 			tm.phase_cnt ++;
 
-		VERBS_INFO("poll status %s(%d) opcode %s(%d) len %d flags %x lid %x wr_id %lx\n",
+		VERBS_INFO("poll status %s(%d) opcode %s(%d) len %d flags %lx lid %x wr_id %lx\n",
 				ibv_wc_status_str(wc.status), wc.status,
-				ibv_wc_opcode_str(wc.opcode), wc.opcode,
-				wc.byte_len, wc.wc_flags, wc.slid,
+				ibv_wc_opcode_str(wc.exp_opcode), wc.exp_opcode,
+				wc.byte_len, wc.exp_wc_flags, wc.slid,
 				wc.wr_id);
 		ASSERT_FALSE(wc.status) << ibv_wc_status_str(wc.status);
 		if (n && !wc.byte_len)
@@ -334,10 +372,68 @@ struct ibvt_cq_tm : public ibvt_cq {
 	}
 };
 
-struct tag_matching : public testing::TestWithParam<int>, public tag_matching_base {
+#else
+
+struct ibvt_cq_tm: public ibvt_cq {
+	tag_matching_base &tm;
+
+	ibvt_cq_tm(tag_matching_base &e, ibvt_ctx &c) : ibvt_cq(e, c), tm(e) {}
+
+	virtual void poll(int n) {
+		struct ibv_cq_ex *cq2 = (struct ibv_cq_ex *)cq;
+		int result = 0, retries = POLL_RETRIES;
+		struct ibv_wc_tm_info tm_info = {};
+		struct ibv_poll_cq_attr attr = {};
+		struct ibv_wc wc = {};
+
+		VERBS_TRACE("%d.%p polling...\n", __LINE__, this);
+
+		while (--retries) {
+			result = ibv_start_poll(cq2, &attr);
+			if (!result)
+				break;
+			ASSERT_EQ(ENOENT, result);
+		}
+		ASSERT_GT(retries,0) << "errno: " << errno;
+
+		wc.opcode = ibv_wc_read_opcode(cq2);
+		wc.wc_flags = ibv_wc_read_wc_flags(cq2);
+		wc.byte_len = ibv_wc_read_byte_len(cq2);
+		ibv_wc_read_tm_info(cq2, &tm_info);
+		ibv_end_poll(cq2);
+
+		if (wc.opcode == IBV_WC_TM_RECV && !(wc.wc_flags & (IBV_WC_TM_MATCH | IBV_WC_TM_DATA_VALID)))
+			tm.phase_cnt ++;
+
+		VERBS_INFO("poll status %s(%d) opcode %s(%d) len %d flags %x wr_id %lx\n",
+				ibv_wc_status_str(cq2->status), cq2->status,
+				ibv_wc_opcode_str(wc.opcode), wc.opcode,
+				wc.byte_len, wc.wc_flags, cq2->wr_id);
+		ASSERT_FALSE(cq2->status) << ibv_wc_status_str(cq2->status);
+		if (n && !wc.byte_len)
+			EXEC(poll(0));
+	}
+};
+
+#endif
+
+template <typename T1, int val>
+struct types {
+	typedef T1 CQ;
+	static const int size = val;
+};
+
+typedef testing::Types<
+	types<ibvt_cq_tm, 0x40>,
+	types<ibvt_cq_tm, 0x2000>,
+	types<ibvt_cq_tm, 0x40000>
+> tm_cq_list;
+
+template <typename T>
+struct tag_matching : public testing::Test, public tag_matching_base {
 	struct ibvt_ctx ctx;
 	struct ibvt_pd pd;
-	struct ibvt_cq_tm srq_cq;
+	typename T::CQ srq_cq;
 	struct ibvt_srq srq;
 	struct ibvt_cq send_cq;
 	struct ibvt_qp_tm send_qp;
@@ -359,10 +455,10 @@ struct tag_matching : public testing::TestWithParam<int>, public tag_matching_ba
 		dst_mr(*this, pd, SZ())
 	{ }
 
-	int SZ() { return GetParam(); }
+	int SZ() { return T::size; }
 
 	void eager(int start, int length, uint64_t tag) {
-		EXEC(send_qp.send(src_mr.sge(start, length), tag, IBV_TM_OP_EAGER));
+		EXEC(send_qp.send(src_mr.sge(start, length), tag, IBV_TMH_EAGER));
 
 		EXEC(send_cq.poll(1));
 		EXEC(srq_cq.poll(1));
@@ -413,28 +509,29 @@ struct tag_matching : public testing::TestWithParam<int>, public tag_matching_ba
 	}
 };
 
+TYPED_TEST_CASE(tag_matching, tm_cq_list);
 
-TEST_P(tag_matching, e0_unexp) {
+TYPED_TEST(tag_matching, e0_unexp) {
 	CHK_SUT(tag-matching);
-	EXEC(recv(0, SZ()));
+	EXEC(recv(0, this->SZ()));
 	EXEC(fix_uwq());
-	EXEC(eager(0, SZ(), 0x12345));
+	EXEC(eager(0, this->SZ(), 0x12345));
 	EXEC(dst_mr.check(0x10));
 }
 
-TEST_P(tag_matching, e1_match) {
+TYPED_TEST(tag_matching, e1_match) {
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
-	EXEC(append(0, SZ(), 1));
-	EXEC(eager(0, SZ(), 1));
+	EXEC(append(0, this->SZ() - 0x10, 1));
+	EXEC(eager(0, this->SZ(), 1));
 	EXEC(dst_mr.check(0, 0x10));
 }
 
 #if 0
-TEST_P(tag_matching, u0_short) {
+TYPED_TEST(tag_matching, u0_short) {
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
-	EXEC(append(0, SZ(), 1));
+	EXEC(append(0, this->SZ(), 1));
 	EXEC(send_qp.send(this->src_mr.sge(0, 0x40), 1,
 			  IBV_SEND_INLINE));
 
@@ -443,39 +540,39 @@ TEST_P(tag_matching, u0_short) {
 	//EXEC(dst_mr.dump());
 }
 
-TEST_P(tag_matching, u2_rndv) {
+TYPED_TEST(tag_matching, u2_rndv) {
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
-	EXEC(append(0, SZ(), 1));
-	EXEC(send_qp.rndv(this->src_mr.sge(0, SZ()), 1));
+	EXEC(append(0, this->SZ(), 1));
+	EXEC(send_qp.rndv(this->src_mr.sge(0, this->SZ()), 1));
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
 	EXEC(dst_mr.check());
 }
 
-TEST_P(tag_matching, u3_rndv_unexp) {
+TYPED_TEST(tag_matching, u3_rndv_unexp) {
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
-	EXEC(send_qp.rndv(this->src_mr.sge(0, SZ()), 1));
+	EXEC(send_qp.rndv(this->src_mr.sge(0, this->SZ()), 1));
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
 	//EXEC(dst_mr.dump());
 }
 
-TEST_P(tag_matching, u4_rndv_sw) {
+TYPED_TEST(tag_matching, u4_rndv_sw) {
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
-	EXEC(append(0, SZ()/2, 1));
-	EXEC(send_qp.rndv(this->src_mr.sge(0, SZ()), 1));
+	EXEC(append(0, this->SZ()/2, 1));
+	EXEC(send_qp.rndv(this->src_mr.sge(0, this->SZ()), 1));
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
 	//EXEC(dst_mr.dump());
 }
 
-TEST_P(tag_matching, u1_imm) {
+TYPED_TEST(tag_matching, u1_imm) {
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
-	EXEC(append(0, SZ(), 1));
+	EXEC(append(0, this->SZ(), 1));
 	EXEC(send_qp.send(this->src_mr.sge(0, 0x20), 1,
 			  IBV_WR_TAG_SEND_EAGER_WITH_IMM,
 			  IBV_SEND_INLINE));
@@ -485,58 +582,58 @@ TEST_P(tag_matching, u1_imm) {
 }
 #endif
 
-TEST_P(tag_matching, e2_matchN) {
-	int i, N = std::min(SZ()/0x20, 8);
+TYPED_TEST(tag_matching, e2_matchN) {
+	int i, N = std::min(this->SZ()/0x20, 8);
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
 	for (i=0; i<N; i++)
-		EXEC(append(SZ()/N*i, SZ()/N, i));
-	EXEC(append(0, SZ(), 0x333));
+		EXEC(append(this->SZ()/N*i, this->SZ()/N, i));
+	EXEC(append(0, this->SZ(), 0x333));
 	for (i=0; i<N; i++)
-		EXEC(eager(SZ()/N*i, SZ()/N, i));
-	EXEC(eager(0, SZ(), 0x333));
+		EXEC(eager(this->SZ()/N*i, this->SZ()/N, i));
+	EXEC(eager(0, this->SZ(), 0x333));
 	EXEC(dst_mr.check(0, 0x10, N));
 }
 
-TEST_P(tag_matching, e3_remove) {
+TYPED_TEST(tag_matching, e3_remove) {
 	int i3, i4;
 	CHK_SUT(tag-matching);
 
 	EXEC(fix_uwq());
-	EXEC(append(0, SZ()/2, 3, &i3));
-	EXEC(append(0, SZ()/2, 1));
+	EXEC(append(0, this->SZ()/2, 3, &i3));
+	EXEC(append(0, this->SZ()/2, 1));
 	EXEC(remove(i3));
-	EXEC(append(SZ()/2, SZ()/2, 4, &i4));
+	EXEC(append(this->SZ()/2, this->SZ()/2, 4, &i4));
 	EXEC(remove(i4));
-	EXEC(append(SZ()/2, SZ()/2, 2));
-	EXEC(eager(SZ()/2, SZ()/2, 2));
-	EXEC(eager(0, SZ()/2, 1));
+	EXEC(append(this->SZ()/2, this->SZ()/2, 2));
+	EXEC(eager(this->SZ()/2, this->SZ()/2, 2));
+	EXEC(eager(0, this->SZ()/2, 1));
 	EXEC(dst_mr.check(0, 0x10, 2));
 }
 
-TEST_P(tag_matching, e4_repeat) {
+TYPED_TEST(tag_matching, e4_repeat) {
 	CHK_SUT(tag-matching);
 
 	EXEC(fix_uwq());
 
-	EXEC(recv(0, SZ()));
-	EXEC(eager(0, SZ(), 5));
+	EXEC(recv(0, this->SZ()));
+	EXEC(eager(0, this->SZ(), 5));
 	EXEC(dst_mr.check(0x10, 0));
 
-	EXEC(append(0, SZ(), 5));
-	EXEC(eager(0, SZ(), 5));
+	EXEC(append(0, this->SZ(), 5));
+	EXEC(eager(0, this->SZ(), 5));
 	EXEC(dst_mr.check(0, 0x10));
 
-	EXEC(recv(0, SZ()));
-	EXEC(eager(0, SZ(), 5));
+	EXEC(recv(0, this->SZ()));
+	EXEC(eager(0, this->SZ(), 5));
 	EXEC(dst_mr.check(0x10, 0));
 
-	EXEC(append(0, SZ(), 5));
-	EXEC(eager(0, SZ(), 5));
+	EXEC(append(0, this->SZ(), 5));
+	EXEC(eager(0, this->SZ(), 5));
 	EXEC(dst_mr.check(0, 0x10));
 
-	EXEC(recv(0, SZ()));
-	EXEC(eager(0, SZ(), 5));
+	EXEC(recv(0, this->SZ()));
+	EXEC(eager(0, this->SZ(), 5));
 	EXEC(dst_mr.check(0x10, 0));
 }
 
@@ -544,7 +641,7 @@ TEST_P(tag_matching, e4_repeat) {
 #define N 17
 #define R 15
 
-TEST_P(tag_matching, e5_mix) {
+TYPED_TEST(tag_matching, e5_mix) {
 	int i, idx[N], j, s;
 	CHK_SUT(tag-matching);
 
@@ -553,14 +650,14 @@ TEST_P(tag_matching, e5_mix) {
 		s = j&1;
 		VERBS_INFO("round %d\n", j);
 		for (i=s; i<N; i++)
-			EXEC(append(0, SZ(), i, idx + i));
+			EXEC(append(0, this->SZ(), i, idx + i));
 		for (i=s; i<N; i++)
 			if (i&1) {
 				EXEC(remove(idx[i]));
-				EXEC(recv(0, SZ()));
+				EXEC(recv(0, this->SZ()));
 			}
 		for (i=s; i<N; i++) {
-			EXEC(eager(0, SZ(), i));
+			EXEC(eager(0, this->SZ(), i));
 			if (i&1)
 				EXEC(dst_mr.check(0x10, 0));
 			else
@@ -569,7 +666,7 @@ TEST_P(tag_matching, e5_mix) {
 	}
 }
 
-TEST_P(tag_matching, e6_unexp_inline) {
+TYPED_TEST(tag_matching, e6_unexp_inline) {
 	ibvt_mr src(*this, this->pd, 0x20),
 		dst(*this, this->pd, 0x20);
 	CHK_SUT(tag-matching);
@@ -578,39 +675,39 @@ TEST_P(tag_matching, e6_unexp_inline) {
 	dst.init();
 	EXEC(srq.unexp(dst, 0, 0x20));
 	EXEC(fix_uwq());
-	EXEC(send_qp.send(src.sge(0x10, 0x10), 0x12345, IBV_TM_OP_EAGER));
+	EXEC(send_qp.send(src.sge(0x10, 0x10), 0x12345, IBV_TMH_EAGER));
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
 }
 
-TEST_P(tag_matching, e7_no_tag) {
+TYPED_TEST(tag_matching, e7_no_tag) {
 	CHK_SUT(tag-matching);
-	EXEC(recv(0, SZ()));
+	EXEC(recv(0, this->SZ()));
 	EXEC(fix_uwq());
-	EXEC(send_qp.send(this->src_mr.sge(0, SZ()), 0, IBV_TM_OP_NO_TAG));
+	EXEC(send_qp.send(this->src_mr.sge(0, this->SZ()), 0, IBV_TMH_NO_TAG));
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
-	EXEC(dst_mr.check());
+	EXEC(dst_mr.check(0x10));
 }
 
-TEST_P(tag_matching, e8_unexp_long) {
+TYPED_TEST(tag_matching, e8_unexp_long) {
 	int i;
-	int n = SZ() / 0x40;
+	int n = this->SZ() / 0x40;
 	if (n > 128)
 		SKIP(0);
 
 	CHK_SUT(tag-matching);
 	for(i = 0; i < n; i++)
-		EXEC(recv(SZ() / n * i, SZ() / n));
+		EXEC(recv(this->SZ() / n * i, this->SZ() / n));
 	EXEC(fix_uwq());
 	for(i = 0; i < n; i++)
-		EXEC(eager(SZ() / n * i,
-			   SZ() / n,
+		EXEC(eager(this->SZ() / n * i,
+			   this->SZ() / n,
 			   1ULL << i));
 	EXEC(dst_mr.check(0x10, 0, n));
 }
 
-TEST_P(tag_matching, r0_unexp) {
+TYPED_TEST(tag_matching, r0_unexp) {
 	ibvt_mr dst(*this, this->pd, 0x80);
 
 	CHK_SUT(tag-matching);
@@ -618,46 +715,66 @@ TEST_P(tag_matching, r0_unexp) {
 	dst.init();
 	EXEC(srq.unexp(dst, 0, 0x80));
 	EXEC(fix_uwq());
-	EXEC(send_qp.rndv(this->src_mr.sge(0, SZ()), 1));
+	EXEC(send_qp.rndv(this->src_mr.sge(0, this->SZ()), 1));
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
 	//dst.dump();
 }
 
-TEST_P(tag_matching, r1_match) {
+TYPED_TEST(tag_matching, r1_match) {
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
-	EXEC(append(0, SZ(), 0x1234567890));
-	EXEC(rndv(0, SZ(), 0x1234567890));
-	//EXEC(dst_mr.dump());
+	EXEC(append(0, this->SZ(), 0x1234567890));
+	EXEC(rndv(0, this->SZ(), 0x1234567890));
 	EXEC(dst_mr.check());
 
 }
 
-TEST_P(tag_matching, r2_match2) {
+TYPED_TEST(tag_matching, r2_match2) {
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
-	EXEC(append(0, SZ()/2, 1));
-	EXEC(append(SZ()/2, SZ()/2, 2));
-	EXEC(rndv(SZ()/2, SZ()/2, 2));
-	EXEC(rndv(0, SZ()/2, 1));
+	EXEC(append(0, this->SZ()/2, 1));
+	EXEC(append(this->SZ()/2, this->SZ()/2, 2));
+	EXEC(rndv(this->SZ()/2, this->SZ()/2, 2));
+	EXEC(rndv(0, this->SZ()/2, 1));
 	EXEC(dst_mr.check());
 }
 
-TEST_P(tag_matching, r3_remove) {
+TYPED_TEST(tag_matching, r3_remove) {
 	int i3, i4;
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
-	EXEC(append(0, SZ()/2, 3, &i3));
-	EXEC(append(0, SZ()/2, 1));
+	EXEC(append(0, this->SZ()/2, 3, &i3));
+	EXEC(append(0, this->SZ()/2, 1));
 	EXEC(remove(i3));
-	EXEC(append(SZ()/2, SZ()/2, 4, &i4));
+	EXEC(append(this->SZ()/2, this->SZ()/2, 4, &i4));
 	EXEC(remove(i4));
-	EXEC(append(SZ()/2, SZ()/2, 2));
-	EXEC(rndv(SZ()/2, SZ()/2, 2));
-	EXEC(rndv(0, SZ()/2, 1));
+	EXEC(append(this->SZ()/2, this->SZ()/2, 2));
+	EXEC(rndv(this->SZ()/2, this->SZ()/2, 2));
+	EXEC(rndv(0, this->SZ()/2, 1));
 	EXEC(dst_mr.check());
 }
 
-INSTANTIATE_TEST_CASE_P(tm, tag_matching, ::testing::Values(0x40, 0x2000, 0x40000));
+TYPED_TEST(tag_matching, s0_append_remove) {
+	int i[10];
+	EXEC(srq.append(this->dst_mr, 0, this->SZ(), 0x111, &i[0]));
+	EXEC(srq.append(this->dst_mr, 0, this->SZ(), 0x222, &i[1]));
+	EXEC(srq.append(this->dst_mr, 0, this->SZ(), 0x333, &i[2]));
+
+	EXEC(srq.remove(i[2]));
+	EXEC(srq.remove(i[1]));
+	EXEC(srq.remove(i[0]));
+
+	EXEC(srq_cq.poll(0));
+	EXEC(srq_cq.poll(0));
+	EXEC(srq_cq.poll(0));
+	EXEC(srq_cq.poll(0));
+	EXEC(srq_cq.poll(0));
+	EXEC(srq_cq.poll(0));
+
+	EXEC(recv(0, this->SZ()));
+	EXEC(fix_uwq());
+	EXEC(eager(0, this->SZ(), 0x12345));
+	EXEC(dst_mr.check(0x10));
+}
 
