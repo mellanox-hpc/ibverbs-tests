@@ -17696,8 +17696,10 @@ class GTEST_API_ TestInfo {
   // Returns the result of the test.
   const TestResult* result() const { return &result_; }
 
-  void runtime_skip() {
-	  is_disabled_ = true;
+  void runtime_skip(int report) {
+	  result_.Clear();
+	  if (report)
+		  is_disabled_ = true;
 	  should_run_ = false;
   }
 
@@ -18143,7 +18145,7 @@ class GTEST_API_ UnitTest {
   // or NULL if no test is running.
   const TestInfo* current_test_info() const;
 
-  void runtime_skip();
+  void runtime_skip(int report);
 
   // Returns the random seed used at the start of the current test run.
   int random_seed() const;

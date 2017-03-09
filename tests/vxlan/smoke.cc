@@ -171,8 +171,7 @@ int calc_flow_rules_size()
 struct ibvt_ctx_eth : public ibvt_ctx {
 	ibvt_ctx_eth(ibvt_env& e) : ibvt_ctx(e) { }
 
-
-	virtual bool check_port(struct ibv_port_attr &port_attr ){
+	virtual bool check_port(struct ibv_device *dev, struct ibv_port_attr &port_attr ) {
 		if ((port_attr.state == IBV_PORT_ACTIVE) &&  (port_attr.link_layer == IBV_LINK_LAYER_ETHERNET) )
 			return true;
 		return false;

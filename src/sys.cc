@@ -29,7 +29,7 @@
 
 #include "common.h"
 
-uint32_t gtest_debug_mask = (GTEST_LOG_FATAL | GTEST_LOG_ERR | GTEST_LOG_WARN);
+uint32_t gtest_debug_mask = GTEST_LOG_ERR | GTEST_LOG_NOTICE;
 char *gtest_dev_name;
 
 

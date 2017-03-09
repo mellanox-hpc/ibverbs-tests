@@ -258,6 +258,10 @@ struct odp_implicit : public odp_mem {
 	}
 };
 
+#define ODP_CHK_SUT(len) \
+	this->check_ram("MemAvailable:", len * 3); \
+	CHK_SUT(odp);
+
 struct odp_send : public odp_base {
 	odp_send():
 		odp_base(0, IBV_ACCESS_LOCAL_WRITE) {}
@@ -327,31 +331,6 @@ struct odp_rdma_write : public odp_base {
 	}
 };
 
-struct odp_rdma_write_1_signal : public odp_base {
-	odp_rdma_write_1_signal():
-		odp_base(0, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE) {}
-
-	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) {
-		EXEC(mem().reg(src, dst, len));
-		EXEC(mem().src().fill());
-		EXEC(mem().dst().init());
-		enum ibv_send_flags f = IBV_SEND_INLINE;
-
-		EXEC(check_stats(2, 0));
-		for (int i = 0; i < count; i++) {
-			if (i == count-1)
-				f = (enum ibv_send_flags)(IBV_SEND_INLINE | IBV_SEND_SIGNALED);
-			EXEC(src.qp.rdma(mem().src().sge(len/count*i, len/count),
-						mem().dst().sge(len/count*i, len/count),
-						IBV_WR_RDMA_WRITE, f));
-		}
-		EXEC(src.cq.poll(1));
-		EXEC(check_stats(2, len / 0x1000 * 2));
-		EXEC(mem().dst().check());
-		EXEC(mem().unreg());
-	}
-};
-
 template <typename T1, typename T2>
 struct types {
 	typedef T1 MEM;
@@ -381,7 +360,6 @@ typedef testing::Types<
 	types<odp_implicit, odp_send>,
 	types<odp_implicit, odp_rdma_read>,
 	types<odp_implicit, odp_rdma_write>,
-	//types<odp_implicit, odp_rdma_write_1_signal>,
 #if HAVE_DECL_IBV_ACCESS_HUGETLB
 	types<odp_hugetlb, odp_send>,
 	types<odp_hugetlb, odp_rdma_read>,
@@ -407,21 +385,21 @@ typedef testing::Types<
 TYPED_TEST_CASE(odp, odp_env_list);
 
 TYPED_TEST(odp, t0_crossbound) {
-	CHK_SUT(odp);
+	ODP_CHK_SUT(PAGE);
 	EXEC(test((1ULL<<(32+1))-PAGE,
 		  (1ULL<<(32+2))-PAGE,
 		  0x2000));
 }
 
 TYPED_TEST(odp, t1_upper) {
-	CHK_SUT(odp);
+	ODP_CHK_SUT(PAGE);
 	EXEC(test(UP - 0x10000 * 1,
 		  UP - 0x10000 * 2,
 		  0x2000));
 }
 
 TYPED_TEST(odp, t2_sequence) {
-	CHK_SUT(odp);
+	ODP_CHK_SUT(PAGE);
 	unsigned long p = 0x2000000000;
 	for (int i = 0; i < 20; i++) {
 		EXEC(test(p, p+PAGE, PAGE));
@@ -430,30 +408,28 @@ TYPED_TEST(odp, t2_sequence) {
 }
 
 TYPED_TEST(odp, t3_1b) {
-	CHK_SUT(odp);
+	ODP_CHK_SUT(PAGE);
 	unsigned long p = 0x2000000000;
 	EXEC(test(p, p+PAGE, PAGE, PAGE/0x10));
 }
 
 TYPED_TEST(odp, t4_6M) {
-	CHK_SUT(odp);
+	ODP_CHK_SUT(0x600000);
 	EXEC(test(0,0,0x600000,0x10));
 }
 
 
 TYPED_TEST(odp, t5_3G) {
-	CHK_SUT(odp);
+	ODP_CHK_SUT(0xe0000000);
 	EXEC(test(0, 0,
 		  0xe0000000,
 		  0x10));
 }
 
-#ifdef HUGE_AMOUNT_OF_MEMORY
-TYPED_TEST(odp, t4_16Gplus) {
-	CHK_SUT(odp);
+TYPED_TEST(odp, t6_16Gplus) {
+	ODP_CHK_SUT(0x400000100);
 	EXEC(test(0, 0,
 		  0x400000100,
 		  0x100));
 }
-#endif
 
