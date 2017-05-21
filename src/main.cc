@@ -40,5 +40,7 @@ GTEST_API_ int main(int argc, char **argv) {
   sys_getenv();
   testing::GTEST_FLAG(print_time) = true;
   testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+  int rc = RUN_ALL_TESTS();
+  std::cout << "[  USAGE   ] http://github.com/mellanox-hpc/ibverbs-tests/wiki/Usage\n\n";
+  return rc;
 }

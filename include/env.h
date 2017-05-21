@@ -178,6 +178,10 @@
 			this->env.lvl_str[this->env.lvl++] = ' '; \
 			EXPECT_NO_FATAL_FAILURE(this->x); \
 			this->env.lvl_str[--this->env.lvl] = 0; \
+			if (this->env.skip) { \
+				VERBS_TRACE("%3d.%p: failed\t%s" #x " - skipping test\n", __LINE__, this, this->env.lvl_str); \
+				return; \
+			} \
 		} \
 	} while(0)
 
@@ -190,7 +194,13 @@
 
 #define DO(x) do { \
 		VERBS_TRACE("%3d.%p: doing\t%s" #x "\n", __LINE__, this, env.lvl_str); \
-		ASSERT_EQ(0, x) << "errno: " << errno; \
+		if (this->env.run) \
+			ASSERT_EQ(0, x) << "errno: " << errno; \
+		else if (x) { \
+			VERBS_NOTICE("%3d.%p: failed\t%s" #x " - skipping test\n", __LINE__, this, env.lvl_str); \
+			this->env.skip = 1; \
+			return; \
+		} \
 	} while(0)
 
 #define SET(x,y) do { \
@@ -199,22 +209,23 @@
 		if (this->env.run) \
 			ASSERT_TRUE(x) << #y << " errno: " << errno; \
 		else if (!x) { \
-			VERBS_TRACE("%3d.%p: failed\t%s" #y " - skipping test\n", __LINE__, this, env.lvl_str); \
+			VERBS_NOTICE("%3d.%p: failed\t%s" #y " - skipping test\n", __LINE__, this, env.lvl_str); \
 			this->env.skip = 1; \
+			return; \
 		} \
 	} while(0)
 
-#define SKIP() \
-	do { \
-		::testing::UnitTest::GetInstance()->runtime_skip(); \
+#define SKIP(report) do { \
+		::testing::UnitTest::GetInstance()->runtime_skip(report); \
+		return; \
 	} while(0)
+
 
 #define CHK_SUT(FEATURE_NAME) \
 	do { \
 		if (this->skip) { \
 			std::cout << "[  SKIPPED ] Feature " << #FEATURE_NAME << " lacks resources to be tested" << std::endl; \
-			SKIP(); \
-			return; \
+			SKIP(1); \
 		} \
 		this->run = 1; \
 	} while(0);
@@ -261,13 +272,37 @@ struct ibvt_env {
 	int flags;
 	int run;
 
+	char meminfo[8192];
+	int ram_init;
+
+	void init_ram() {
+		int fd = open("/proc/meminfo", O_RDONLY);
+		ASSERT_GT(fd, 0);
+		read(fd, meminfo, sizeof(meminfo));
+		close(fd);
+		ram_init = 1;
+	}
+
+	void check_ram(const char* var, long val) {
+		if (!ram_init)
+			ASSERT_NO_FATAL_FAILURE(init_ram());
+		char *hit = strstr(meminfo, var);
+		ASSERT_TRUE(hit);
+		if ((val >> 10) > atoi(hit + strlen(var))) {
+			VERBS_NOTICE("%smeminfo %s is lower than %ld - skipping test\n",
+				     lvl_str, var, val >> 10);
+			skip = 1;
+		}
+	}
+
 	ibvt_env() :
 		env(*this),
 		lvl(0),
 		skip(0),
 		fatality(0),
 		flags(ACTIVE),
-		run(0)
+		run(0),
+		ram_init(0)
 	{
 		memset(lvl_str, 0, sizeof(lvl_str));
 	}
@@ -290,13 +325,6 @@ struct ibvt_ctx : public ibvt_obj {
 	uint8_t port_num;
 	uint16_t lid;
 	char *pdev_name;
-
-	ibvt_ctx(ibvt_env &e, ibvt_ctx *o = NULL) :
-		ibvt_obj(e),
-		ctx(NULL),
-		other(o),
-		port_num(0),
-		pdev_name(NULL) {}
 
 	void init_debugfs() {
 		char path[PATH_MAX];
@@ -337,6 +365,12 @@ struct ibvt_ctx : public ibvt_obj {
 		ASSERT_EQ(val, atoi(buff)) << var;
 	}
 
+	ibvt_ctx(ibvt_env &e, ibvt_ctx *o = NULL) :
+		ibvt_obj(e),
+		ctx(NULL),
+		other(o),
+		port_num(0),
+		pdev_name(NULL) {}
 
 	virtual bool check_port(struct ibv_device *dev, struct ibv_port_attr &port_attr ) {
 		if (getenv("IBV_DEV") && strcmp(ibv_get_device_name(dev), getenv("IBV_DEV")))
@@ -378,8 +412,10 @@ struct ibvt_ctx : public ibvt_obj {
 			}
 		}
 		ibv_free_device_list(dev_list);
-		if (!port_num)
+		if (!port_num) {
+			VERBS_NOTICE("suitable port not found\n");
 			env.skip = 1;
+		}
 	}
 
 	virtual ~ibvt_ctx() {
@@ -438,6 +474,7 @@ struct ibvt_cq : public ibvt_obj {
 
 		VERBS_TRACE("%d.%p polling...\n", __LINE__, this);
 
+		errno = 0;
 		while (!result && --retries) {
 			result = ibv_poll_cq(cq, n, wc);
 			ASSERT_GE(result,0);
@@ -693,8 +730,8 @@ struct ibvt_qp_rc : public ibvt_qp {
 
 	virtual void init() {
 		struct ibv_qp_init_attr_ex attr;
-		EXEC(pd.init());
-		EXEC(cq.init());
+		INIT(pd.init());
+		INIT(cq.init());
 		init_attr(attr);
 		attr.qp_type = IBV_QPT_RC;
 		SET(qp, ibv_create_qp_ex(pd.ctx.ctx, &attr));

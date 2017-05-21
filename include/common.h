@@ -93,29 +93,34 @@ typedef struct _DATA128_TYPE
 #endif
 
 enum {
-	GTEST_LOG_FATAL		= 1 << 0,
-	GTEST_LOG_ERR		= 1 << 1,
-	GTEST_LOG_WARN		= 1 << 2,
-	GTEST_LOG_INFO		= 1 << 3,
-	GTEST_LOG_TRACE		= 1 << 4
+	GTEST_LOG_ERR		= 1 << 0,
+	GTEST_LOG_NOTICE	= 1 << 1,
+	GTEST_LOG_INFO		= 1 << 2,
+	GTEST_LOG_TRACE		= 1 << 3
 };
 
 extern uint32_t gtest_debug_mask;
 extern char *gtest_dev_name;
 
 
-#define VERBS_INFO(fmt, ...)  \
-	do {                                                           \
-		if (gtest_debug_mask & GTEST_LOG_INFO)                 \
-			printf("\033[0;3%sm" "[     INFO ] " fmt "\033[m", "4", ##__VA_ARGS__);    \
+#define VERBS_PRINT(level, color, fmt, ...) \
+	do { \
+		if (gtest_debug_mask & GTEST_LOG_ ## level) \
+			printf("\033[0;3%dm" "[ %-8s ] " fmt "\033[m", \
+			       color, #level, ##__VA_ARGS__); \
 	} while(0)
+
+#define VERBS_ERR(fmt, ...) \
+	VERBS_PRINT(ERR, 1, fmt, ##__VA_ARGS__)
+
+#define VERBS_NOTICE(fmt, ...) \
+	VERBS_PRINT(NOTICE, 3, fmt, ##__VA_ARGS__)
+
+#define VERBS_INFO(fmt, ...) \
+	VERBS_PRINT(INFO, 4, fmt, ##__VA_ARGS__)
 
 #define VERBS_TRACE(fmt, ...) \
-	do {                                                           \
-		if (gtest_debug_mask & GTEST_LOG_TRACE)                 \
-			printf("\033[0;3%sm" "[    TRACE ] " fmt "\033[m", "7", ##__VA_ARGS__);    \
-	} while(0)
-
+	VERBS_PRINT(TRACE, 7, fmt, ##__VA_ARGS__)
 
 #define CHECK_TEST_OR_SKIP(FEATURE_NAME) \
 	do{\

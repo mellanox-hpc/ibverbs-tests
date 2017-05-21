@@ -592,7 +592,7 @@ TEST_P(tag_matching, e8_unexp_long) {
 	int i;
 	int n = SZ() / 0x40;
 	if (n > 128)
-		return;
+		SKIP(0);
 
 	CHK_SUT(tag-matching);
 	for(i = 0; i < n; i++)
