@@ -49,7 +49,7 @@
 #define SZ 128
 
 template <typename T1, typename T2, typename T3>
-struct types {
+struct types_3 {
 	typedef T1 QP;
 	typedef T2 MR;
 	typedef T3 CQ;
@@ -102,10 +102,10 @@ struct base_test : public testing::Test, public ibvt_env {
 };
 
 typedef testing::Types<
-	types<ibvt_qp_rc, ibvt_mr, ibvt_cq>,
-	types<ibvt_qp_ud, ibvt_mr_ud, ibvt_cq>,
-	types<ibvt_qp_rc, ibvt_mr, ibvt_cq_event>,
-	types<ibvt_qp_ud, ibvt_mr_ud, ibvt_cq_event>
+	types_3<ibvt_qp_rc, ibvt_mr, ibvt_cq>,
+	types_3<ibvt_qp_ud, ibvt_mr_ud, ibvt_cq>,
+	types_3<ibvt_qp_rc, ibvt_mr, ibvt_cq_event>,
+	types_3<ibvt_qp_ud, ibvt_mr_ud, ibvt_cq_event>
 > base_test_env_list;
 
 TYPED_TEST_CASE(base_test, base_test_env_list);
@@ -136,8 +136,8 @@ template <typename T>
 struct rdma_test : public base_test<T> {};
 
 typedef testing::Types<
-	types<ibvt_qp_rc, ibvt_mr, ibvt_cq>,
-	types<ibvt_qp_rc, ibvt_mr, ibvt_cq_event>
+	types_3<ibvt_qp_rc, ibvt_mr, ibvt_cq>,
+	types_3<ibvt_qp_rc, ibvt_mr, ibvt_cq_event>
 > rdma_test_env_list;
 
 TYPED_TEST_CASE(rdma_test, rdma_test_env_list);
@@ -152,6 +152,85 @@ TYPED_TEST(rdma_test, t0) {
 TYPED_TEST(rdma_test, t1) {
 	CHK_SUT(basic);
 	EXEC(recv_qp.rdma(this->dst_mr.sge(), this->src_mr.sge(), IBV_WR_RDMA_READ));
+	EXEC(cq.poll(1));
+	EXEC(dst_mr.check());
+}
+
+template <typename T1, typename T2, typename T3, typename T4>
+struct types_4 {
+	typedef T1 Send;
+	typedef T2 Recv;
+	typedef T3 MR;
+	typedef T4 CQ;
+};
+
+typedef testing::Types<
+	types_4<ibvt_qp_rc, ibvt_qp_srq<ibvt_qp_rc>, ibvt_mr, ibvt_cq>,
+	types_4<ibvt_qp_rc, ibvt_qp_srq<ibvt_qp_rc>, ibvt_mr, ibvt_cq_event>,
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+	types_4<ibvt_qp_dc, ibvt_dct, ibvt_mr, ibvt_cq>,
+	types_4<ibvt_qp_dc, ibvt_dct, ibvt_mr, ibvt_cq_event>,
+#endif
+	types_4<ibvt_qp_ud, ibvt_qp_srq<ibvt_qp_ud>, ibvt_mr_ud, ibvt_cq>,
+	types_4<ibvt_qp_ud, ibvt_qp_srq<ibvt_qp_ud>, ibvt_mr_ud, ibvt_cq_event>
+> srq_test_env_list;
+
+template <typename T>
+struct srq_test : public testing::Test, public ibvt_env {
+	struct ibvt_ctx ctx;
+	struct ibvt_pd pd;
+	struct T::CQ cq;
+	struct ibvt_srq srq;
+	struct T::Send send_qp;
+	struct T::Recv recv_obj;
+	struct T::MR src_mr;
+	struct T::MR dst_mr;
+
+	srq_test() :
+		ctx(*this, NULL),
+		pd(*this, ctx),
+		cq(*this, ctx),
+		srq(*this, pd, cq),
+		send_qp(*this, pd, cq),
+		recv_obj(*this, pd, cq, srq),
+		src_mr(*this, pd, SZ),
+		dst_mr(*this, pd, SZ)
+	{ }
+
+	void send(intptr_t start, size_t length) {
+		EXEC(send_qp.send(src_mr.sge(start, length)));
+	}
+
+	void recv(intptr_t start, size_t length) {
+		EXEC(srq.recv(dst_mr.sge(start, length)));
+	}
+
+	virtual void SetUp() {
+		INIT(ctx.init());
+		if (skip)
+			return;
+		INIT(srq.init());
+		INIT(send_qp.init());
+		INIT(recv_obj.init());
+		INIT(send_qp.connect(&recv_obj));
+		INIT(recv_obj.connect(&send_qp));
+		INIT(src_mr.fill());
+		INIT(dst_mr.init());
+		INIT(cq.arm());
+	}
+
+	virtual void TearDown() {
+		ASSERT_FALSE(HasFailure());
+	}
+};
+
+TYPED_TEST_CASE(srq_test, srq_test_env_list);
+
+TYPED_TEST(srq_test, t0) {
+	CHK_SUT(basic);
+	EXEC(recv(0, SZ));
+	EXEC(send(0, SZ));
+	EXEC(cq.poll(1));
 	EXEC(cq.poll(1));
 	EXEC(dst_mr.check());
 }
