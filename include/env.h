@@ -128,6 +128,7 @@
 
 #define ibv_peer_buf		       ibv_exp_peer_buf
 #define ibv_peer_buf_alloc_attr	       ibv_exp_peer_buf_alloc_attr
+#define IBV_SEND_SIGNALED	       IBV_EXP_SEND_SIGNALED
 
 #define ibv_create_cq_ex_(ctx, attr, n, ch) \
 		ibv_exp_create_cq(ctx, n, NULL, ch, 0, attr)
@@ -148,6 +149,22 @@
 		in.comp_mask = 0; \
 		ibv_exp_reg_mr(&in); })
 
+
+#define ibv_srq_init_attr_ex		ibv_exp_create_srq_attr
+#define ibv_create_srq_ex		ibv_exp_create_srq
+#define ibv_dct				ibv_exp_dct
+
+#define IBV_WR_SEND			IBV_EXP_WR_SEND
+#define IBV_WR_RDMA_READ		IBV_EXP_WR_RDMA_READ
+#define IBV_WR_RDMA_WRITE		IBV_EXP_WR_RDMA_WRITE
+#define ibv_wr_opcode			ibv_exp_wr_opcode
+#define ibv_send_flags			ibv_exp_send_flags
+#define _wr_opcode			exp_opcode
+#define _wr_send_flags			exp_send_flags
+#define ibv_post_send			ibv_exp_post_send
+#define ibv_send_wr			ibv_exp_send_wr
+
+
 #else
 
 #define ibv_create_cq_attr_ex		 ibv_cq_init_attr_ex
@@ -161,6 +178,9 @@
 #define ibv_query_device_(ctx, attr, attr2) ({ \
 		int ret = ibv_query_device_ex(ctx, NULL, attr); \
 		attr2 = &(attr)->orig_attr; ret ; })
+
+#define _wr_opcode			opcode
+#define _wr_send_flags			send_flags
 
 #endif
 
@@ -248,6 +268,8 @@
 #define ACTIVE (1 << 0)
 
 #define Q_KEY 0x11111111
+
+#define DC_KEY 1
 
 static void hexdump(const char *pfx, void *buff, size_t len)  __attribute__ ((unused));
 static void hexdump(const char *pfx, void *buff, size_t len) {
@@ -652,6 +674,67 @@ struct ibvt_mr_ud : public ibvt_mr_hdr {
 		ibvt_mr_hdr(e, p, s, 40) {}
 };
 
+struct ibvt_srq : public ibvt_obj {
+	struct ibv_srq *srq;
+
+	ibvt_pd &pd;
+	ibvt_cq &cq;
+
+	ibvt_srq(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) :
+		 ibvt_obj(e), srq(NULL), pd(p), cq(c) {}
+
+	~ibvt_srq() {
+		FREE(ibv_destroy_srq, srq);
+	}
+
+	virtual void init_attr(struct ibv_srq_init_attr_ex &attr) {
+#ifndef HAVE_INFINIBAND_VERBS_EXP_H
+		attr.comp_mask =
+			IBV_SRQ_INIT_ATTR_TYPE |
+			IBV_SRQ_INIT_ATTR_PD |
+			IBV_SRQ_INIT_ATTR_CQ;
+
+
+		attr.pd = pd.pd;
+		attr.cq = cq.cq;
+		attr.attr.max_wr  = 128;
+		attr.attr.max_sge = 1;
+#else
+		attr.comp_mask =
+			IBV_EXP_CREATE_SRQ_CQ;
+		attr.srq_type = IBV_EXP_SRQT_BASIC;
+		attr.pd = pd.pd;
+		attr.cq = cq.cq;
+		attr.base.attr.max_wr  = 128;
+		attr.base.attr.max_sge = 1;
+#endif
+	}
+
+	virtual void init() {
+		struct ibv_srq_init_attr_ex attr = {};
+		if (srq)
+			return;
+
+		EXEC(pd.init());
+		EXEC(cq.init());
+		init_attr(attr);
+
+		SET(srq, ibv_create_srq_ex(pd.ctx.ctx, &attr));
+	}
+
+	virtual void recv(ibv_sge sge) {
+		struct ibv_recv_wr wr;
+		struct ibv_recv_wr *bad_wr = NULL;
+
+		memset(&wr, 0, sizeof(wr));
+		wr.next = NULL;
+		wr.wr_id = 0x56789;
+		wr.sg_list = &sge;
+		wr.num_sge = 1;
+		DO(ibv_post_srq_recv(srq, &wr, &bad_wr));
+	}
+};
+
 struct ibvt_qp : public ibvt_obj {
 	struct ibv_qp *qp;
 	ibvt_pd &pd;
@@ -675,6 +758,14 @@ struct ibvt_qp : public ibvt_obj {
 		attr.comp_mask = IBV_QP_INIT_ATTR_PD;
 	}
 
+	virtual void init() {
+		struct ibv_qp_init_attr_ex attr;
+		INIT(pd.init());
+		INIT(cq.init());
+		init_attr(attr);
+		SET(qp, ibv_create_qp_ex(pd.ctx.ctx, &attr));
+	}
+
 	virtual void recv(ibv_sge sge) {
 		struct ibv_recv_wr wr;
 		struct ibv_recv_wr *bad_wr = NULL;
@@ -687,7 +778,8 @@ struct ibvt_qp : public ibvt_obj {
 		DO(ibv_post_recv(qp, &wr, &bad_wr));
 	}
 
-	virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode) {
+	virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode,
+			       int flags = IBV_SEND_SIGNALED) {
 		struct ibv_send_wr wr;
 		struct ibv_send_wr *bad_wr = NULL;
 
@@ -696,8 +788,8 @@ struct ibvt_qp : public ibvt_obj {
 		wr.wr_id = 0;
 		wr.sg_list = &sge;
 		wr.num_sge = 1;
-		wr.opcode = opcode;
-		wr.send_flags = IBV_SEND_SIGNALED;
+		wr._wr_opcode = opcode;
+		wr._wr_send_flags = flags;
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 
@@ -710,8 +802,8 @@ struct ibvt_qp : public ibvt_obj {
 		wr.wr_id = 0;
 		wr.sg_list = &src_sge;
 		wr.num_sge = 1;
-		wr.opcode = opcode;
-		wr.send_flags = flags;
+		wr._wr_opcode = opcode;
+		wr._wr_send_flags = flags;
 
 		wr.wr.rdma.remote_addr = dst_sge.addr;
 		wr.wr.rdma.rkey = dst_sge.lkey;
@@ -729,13 +821,9 @@ struct ibvt_qp_rc : public ibvt_qp {
 
 	ibvt_qp_rc(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) : ibvt_qp(e, p, c) {}
 
-	virtual void init() {
-		struct ibv_qp_init_attr_ex attr;
-		INIT(pd.init());
-		INIT(cq.init());
-		init_attr(attr);
+	virtual void init_attr(struct ibv_qp_init_attr_ex &attr) {
+		ibvt_qp::init_attr(attr);
 		attr.qp_type = IBV_QPT_RC;
-		SET(qp, ibv_create_qp_ex(pd.ctx.ctx, &attr));
 	}
 
 	virtual void connect(ibvt_qp *remote) {
@@ -787,16 +875,13 @@ struct ibvt_qp_ud : public ibvt_qp_rc {
 
 	ibvt_qp_ud(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) : ibvt_qp_rc(e, p, c) {}
 
-	virtual void init() {
-		struct ibv_qp_init_attr_ex attr;
-		EXEC(pd.init());
-		EXEC(cq.init());
-		init_attr(attr);
+	virtual void init_attr(struct ibv_qp_init_attr_ex &attr) {
+		ibvt_qp::init_attr(attr);
 		attr.qp_type = IBV_QPT_UD;
-		SET(qp, ibv_create_qp_ex(pd.ctx.ctx, &attr));
 	}
 
-	virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode) {
+	virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode,
+			       int flags = IBV_SEND_SIGNALED) {
 		struct ibv_sge sge_ud = sge;
 		struct ibv_send_wr wr;
 		struct ibv_send_wr *bad_wr = NULL;
@@ -809,8 +894,8 @@ struct ibvt_qp_ud : public ibvt_qp_rc {
 		wr.wr_id = 0;
 		wr.sg_list = &sge_ud;
 		wr.num_sge = 1;
-		wr.opcode = opcode;
-		wr.send_flags = IBV_SEND_SIGNALED;
+		wr._wr_opcode = opcode;
+		wr._wr_send_flags = flags;
 
 		wr.wr.ud.ah = ah;
 		wr.wr.ud.remote_qpn = remote->qp->qp_num;
@@ -852,6 +937,140 @@ struct ibvt_qp_ud : public ibvt_qp_rc {
 
 		DO(ibv_modify_qp(qp, &attr, flags));
 	}
+};
+
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+struct ibvt_dct : public ibvt_obj {
+	struct ibv_dct *dct;
+	ibvt_pd &pd;
+	ibvt_cq &cq;
+	ibvt_srq &srq;
+
+	ibvt_dct(ibvt_env &e, ibvt_pd &p, ibvt_cq &c, ibvt_srq &s) :
+		ibvt_obj(e), dct(NULL), pd(p), cq(c), srq(s) {}
+
+	virtual void init() {
+		struct ibv_exp_dct_init_attr attr = {};
+
+		if (dct)
+			return;
+
+		INIT(pd.init());
+		INIT(cq.init());
+		INIT(srq.init());
+
+		attr.pd = pd.pd;
+		attr.cq = cq.cq;
+		attr.srq = srq.srq;
+		attr.dc_key = DC_KEY;
+		attr.port = pd.ctx.port_num;
+		attr.access_flags = IBV_ACCESS_REMOTE_WRITE;
+		attr.min_rnr_timer = 2;
+		attr.mtu = IBV_MTU_512;
+		attr.hop_limit = 1;
+		attr.inline_size = 0;
+		SET(dct, ibv_exp_create_dct(pd.ctx.ctx, &attr));
+	}
+
+	virtual void connect(ibvt_qp *remote) { }
+
+	virtual ~ibvt_dct() {
+		FREE(ibv_exp_destroy_dct, dct);
+	}
+};
+
+struct ibvt_qp_dc : public ibvt_qp_ud {
+	ibvt_dct* dremote;
+
+	ibvt_qp_dc(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) : ibvt_qp_ud(e, p, c) {}
+
+	virtual void init_attr(struct ibv_qp_init_attr_ex &attr) {
+		ibvt_qp::init_attr(attr);
+		attr.qp_type = IBV_EXP_QPT_DC_INI;
+	}
+
+	virtual void connect(ibvt_dct *remote) {
+		struct ibv_exp_qp_attr attr;
+		long long flags;
+
+		this->dremote = remote;
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state = IBV_QPS_INIT;
+		attr.port_num = pd.ctx.port_num;
+		attr.pkey_index = 0;
+		attr.dct_key = DC_KEY;
+		flags = IBV_EXP_QP_STATE |
+			IBV_EXP_QP_PKEY_INDEX |
+			IBV_EXP_QP_PORT |
+			IBV_EXP_QP_DC_KEY;
+
+		DO(ibv_exp_modify_qp(qp, &attr, flags));
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state = IBV_QPS_RTR;
+		attr.path_mtu = IBV_MTU_512;
+		attr.ah_attr.is_global = 0;
+		flags = IBV_EXP_QP_STATE | IBV_EXP_QP_PATH_MTU |
+			IBV_EXP_QP_AV;
+
+
+		attr.ah_attr.dlid = dremote->pd.ctx.lid;
+		attr.ah_attr.sl = 0;
+		attr.ah_attr.src_path_bits = 0;
+		attr.ah_attr.port_num = dremote->pd.ctx.port_num;
+		SET(ah, ibv_create_ah(pd.pd, &attr.ah_attr));
+		DO(ibv_exp_modify_qp(qp, &attr, flags));
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state = IBV_QPS_RTS;
+		attr.timeout	    = 14;
+		attr.retry_cnt	    = 7;
+		attr.rnr_retry	    = 7;
+		attr.max_rd_atomic  = 1;
+		flags = IBV_EXP_QP_STATE | IBV_EXP_QP_TIMEOUT |
+			IBV_EXP_QP_RETRY_CNT |
+			IBV_EXP_QP_RNR_RETRY |
+			IBV_EXP_QP_MAX_QP_RD_ATOMIC;
+
+		DO(ibv_exp_modify_qp(qp, &attr, flags));
+	}
+
+	virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode,
+			       int flags = IBV_SEND_SIGNALED) {
+		struct ibv_sge sge_ud = sge;
+		struct ibv_exp_send_wr wr = {};
+		struct ibv_exp_send_wr *bad_wr = NULL;
+
+		//sge_ud.addr += 40;
+		//sge_ud.length -= 40;
+
+		wr.sg_list = &sge_ud;
+		wr.num_sge = 1;
+		wr.exp_opcode = opcode;
+		wr.exp_send_flags = flags;
+
+		wr.dc.ah = ah;
+		wr.dc.dct_number = dremote->dct->dct_num;
+		wr.dc.dct_access_key = DC_KEY;
+
+		DO(ibv_exp_post_send(qp, &wr, &bad_wr));
+	}
+};
+#endif
+
+template <typename QP>
+struct ibvt_qp_srq : public QP {
+	ibvt_srq &srq;
+
+	ibvt_qp_srq(ibvt_env &e, ibvt_pd &p, ibvt_cq &c, ibvt_srq &s) :
+		    QP(e, p, c), srq(s) {}
+
+	virtual void init_attr(struct ibv_qp_init_attr_ex &attr) {
+		QP::init_attr(attr);
+		attr.srq = srq.srq;
+	}
+
 };
 
 #endif

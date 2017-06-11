@@ -242,7 +242,7 @@ struct ibvt_peer_op : public ibvt_obj {
 		memset(wr, 0, MAX_WR*sizeof(*wr));
 		memset(sge, 0, MAX_WR*sizeof(*sge));
 		for(; op; op = op->next) {
-			wr[i].opcode = IBV_WR_RDMA_WRITE;
+			wr[i]._wr_opcode = IBV_WR_RDMA_WRITE;
 			if (op->type == IBV_PEER_OP_STORE_DWORD ||
 					op->type == IBV_PEER_OP_POLL_AND_DWORD ||
 					op->type == IBV_PEER_OP_POLL_NOR_DWORD ||
@@ -253,7 +253,7 @@ struct ibvt_peer_op : public ibvt_obj {
 				wr[i].wr.rdma.remote_addr = reg_h->start + op->wr.dword_va.offset;
 				sge[i].length = 4;
 				if (op->type != IBV_PEER_OP_STORE_DWORD)
-					wr[i].opcode = IBV_WR_RDMA_READ;
+					wr[i]._wr_opcode = IBV_WR_RDMA_READ;
 				else
 					memcpy(ptr, &op->wr.dword_va.data, 4);
 				ptr += 4;
@@ -275,7 +275,7 @@ struct ibvt_peer_op : public ibvt_obj {
 			sge[i].lkey = ctrl_mr->lkey;
 			wr[i].sg_list = &sge[i];
 			wr[i].num_sge = 1;
-			if (i && wr[i-1].opcode != IBV_WR_RDMA_READ)
+			if (i && wr[i-1]._wr_opcode != IBV_WR_RDMA_READ)
 				wr[i-1].next = &wr[i];
 			wr[i].next = NULL;
 			i++;
