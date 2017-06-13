@@ -390,7 +390,7 @@ struct tag_matching_rc : public tag_matching_base {
 	}
 };
 
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_STRUCT_IBV_EXP_TMH_RAVH
 
 struct ibvt_qp_tm_dc : public ibvt_qp_dc {
 	ibvt_ctx &ctx;
@@ -510,7 +510,7 @@ struct types {
 };
 
 typedef testing::Types<
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_STRUCT_IBV_EXP_TMH_RAVH
 	types<tag_matching_dc, 0x40>,
 	types<tag_matching_dc, 0x2000>,
 	types<tag_matching_dc, 0x40000>,
