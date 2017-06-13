@@ -118,6 +118,10 @@ AC_CHECK_DECLS([ibv_exp_post_srq_ops], [tag_matching_2=1], [], [
 ])
 AM_CONDITIONAL([TAG_MATCHING_V0_2], [test x$tag_matching_2 = x1])
 
+AC_CHECK_TYPES([struct ibv_exp_tmh_ravh], [], [], [
+#include <infiniband/verbs_exp.h>
+])
+
 AC_CHECK_DECLS([ibv_prefetch_mr], [], [], [
 #include <infiniband/verbs.h>
 ])

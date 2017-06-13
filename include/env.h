@@ -1042,9 +1042,6 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 		struct ibv_exp_send_wr wr = {};
 		struct ibv_exp_send_wr *bad_wr = NULL;
 
-		//sge_ud.addr += 40;
-		//sge_ud.length -= 40;
-
 		wr.sg_list = &sge_ud;
 		wr.num_sge = 1;
 		wr.exp_opcode = opcode;
