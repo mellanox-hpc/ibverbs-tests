@@ -157,6 +157,11 @@ if test x$Vxlan_exp = x1 || test x$Vxlan = x1; then
 	AC_DEFINE(HAVE_VXLAN, 1, [Vxlan is supported])
 fi
 
+AC_CHECK_DECL([IBV_EXP_SIG_TYPE_T10_DIF], [sig_handover=1], [], [
+#include <infiniband/verbs_exp.h>
+])
+AM_CONDITIONAL([SIG_HANDOVER], [test x$sig_handover = x1])
+
 if test $(basename ${CC}x) = mpiccx; then
     AC_DEFINE(HAVE_MPICC, 1, [Use mpirun as a launcher])
 fi

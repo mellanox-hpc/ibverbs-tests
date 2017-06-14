@@ -72,5 +72,9 @@ ibv_test_SOURCES +=      tests/odp/smoke.cc
 ibv_test_SOURCES +=      tests/vxlan/smoke.cc
 ibv_test_SOURCES +=      tests/flow_tag/smoke.cc
 
+if SIG_HANDOVER
+ibv_test_SOURCES +=      tests/sig-handover/smoke.cc
+endif
+
 EXTRA_DIST = src/gtest-all.cc
 EXTRA_DIST += autogen.sh

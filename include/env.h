@@ -576,7 +576,10 @@ struct ibvt_mr : public ibvt_obj {
 	long access_flags;
 	char *buff;
 
-	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a = 0, long af = IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_READ|IBV_ACCESS_REMOTE_WRITE) :
+	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a = 0,
+		long af = IBV_ACCESS_LOCAL_WRITE |
+			  IBV_ACCESS_REMOTE_READ |
+			  IBV_ACCESS_REMOTE_WRITE) :
 		ibvt_obj(e),
 		mr(NULL),
 		pd(p),
@@ -644,7 +647,7 @@ struct ibvt_mr_hdr : public ibvt_mr {
 
 	virtual void init() {
 		EXEC(ibvt_mr::init());
-		//memset(buff, 0xff, size);
+		memset(buff, 0xff, size);
 	}
 
 	virtual void fill() {
