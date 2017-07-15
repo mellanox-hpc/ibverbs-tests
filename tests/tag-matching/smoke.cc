@@ -299,7 +299,7 @@ struct ibvt_cq_tm: public ibvt_cq {
 
 	virtual void poll(int n) {
 		struct ibv_cq_ex *cq2 = (struct ibv_cq_ex *)cq;
-		int result = 0, retries = POLL_RETRIES;
+		long result = 0, retries = POLL_RETRIES;
 		struct ibv_wc_tm_info tm_info = {};
 		struct ibv_poll_cq_attr attr = {};
 		struct ibv_wc wc = {};

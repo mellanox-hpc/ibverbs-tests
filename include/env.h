@@ -269,7 +269,11 @@
 		} \
 	} while(0)
 
-#define POLL_RETRIES 80000000
+#ifdef PALLADIUM
+#define POLL_RETRIES 8000000000ULL
+#else
+#define POLL_RETRIES 80000000ULL
+#endif
 
 #define ACTIVE (1 << 0)
 
@@ -499,7 +503,7 @@ struct ibvt_cq : public ibvt_obj {
 
 	virtual void poll(int n) {
 		struct ibv_wc wc[n];
-		int result = 0, retries = POLL_RETRIES;
+		long result = 0, retries = POLL_RETRIES;
 
 		VERBS_TRACE("%d.%p polling...\n", __LINE__, this);
 
@@ -522,7 +526,7 @@ struct ibvt_cq : public ibvt_obj {
 
 	virtual void poll_arrive(int n) {
 		struct ibv_wc wc[n];
-		int result = 0, retries = POLL_RETRIES;
+		long result = 0, retries = POLL_RETRIES;
 
 		VERBS_TRACE("%d.%p polling...\n", __LINE__, this);
 
