@@ -121,17 +121,23 @@ struct ibvt_sub_mr : public ibvt_mr {
 struct odp_side : public ibvt_obj {
 	ibvt_ctx &ctx;
 	ibvt_pd &pd;
-	ibvt_cq cq;
-	ibvt_qp_rc qp;
 	int access_flags;
 
 	odp_side(ibvt_env &e, ibvt_ctx &c, ibvt_pd &p, int a) :
 		ibvt_obj(e),
 		ctx(c),
 		pd(p),
-		cq(e, ctx),
-		qp(e, pd, cq),
 		access_flags(a) {}
+};
+
+struct odp_side_rc : public odp_side {
+	ibvt_cq cq;
+	ibvt_qp_rc qp;
+
+	odp_side_rc(ibvt_env &e, ibvt_ctx &c, ibvt_pd &p, int a) :
+		odp_side(e, c, p, a),
+		cq(e, ctx),
+		qp(e, pd, cq) {}
 
 	virtual void init() {
 		EXEC(qp.init());
@@ -159,17 +165,28 @@ struct odp_mem : public ibvt_obj {
 	}
 };
 
+struct odp_trans : public ibvt_obj {
+	odp_trans(ibvt_env &e) : ibvt_obj(e) {}
+
+	virtual void send(ibv_sge sge) = 0;
+	virtual void recv(ibv_sge sge) = 0;
+	virtual void rdma_src(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode) {}
+	virtual void rdma_dst(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode) {}
+	virtual void poll_src() = 0;
+	virtual void poll_dst() = 0;
+};
+
 struct odp_base : public testing::Test, public ibvt_env {
 	ibvt_ctx ctx;
 	ibvt_pd pd;
-	odp_side src;
-	odp_side dst;
+	int src_access_flags;
+	int dst_access_flags;
 
-	odp_base(int src_access_flags, int dst_access_flags) :
+	odp_base(int s, int d) :
 		ctx(*this, NULL),
 		pd(*this, ctx),
-		src(*this, ctx, pd, src_access_flags),
-		dst(*this, ctx, pd, dst_access_flags) {}
+		src_access_flags(s),
+		dst_access_flags(d) {}
 
 	void check_stats(int mrs, int pages) {
 		EXEC(ctx.check_debugfs("odp_stats/num_odp_mrs", mrs));
@@ -177,16 +194,13 @@ struct odp_base : public testing::Test, public ibvt_env {
 	}
 
 	virtual odp_mem &mem() = 0;
+	virtual odp_trans &trans() = 0;
 	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) = 0;
 
 	virtual void init() {
 		INIT(ctx.init());
 		INIT(ctx.init_debugfs());
 		INIT(check_stats(0, 0));
-		INIT(src.init());
-		INIT(dst.init());
-		INIT(src.qp.connect(&dst.qp));
-		INIT(dst.qp.connect(&src.qp));
 	}
 
 	virtual void SetUp() {
@@ -198,6 +212,105 @@ struct odp_base : public testing::Test, public ibvt_env {
 	}
 };
 
+struct odp_rc : public odp_trans {
+	ibvt_ctx &ctx;
+	ibvt_pd &pd;
+	odp_side_rc src;
+	odp_side_rc dst;
+
+	odp_rc(odp_base &e) :
+		odp_trans(e),
+		ctx(e.ctx),
+		pd(e.pd),
+		src(e, e.ctx, e.pd, e.src_access_flags),
+		dst(e, e.ctx, e.pd, e.dst_access_flags) {}
+
+	virtual void init() {
+		INIT(src.init());
+		INIT(dst.init());
+		INIT(src.qp.connect(&dst.qp));
+		INIT(dst.qp.connect(&src.qp));
+	}
+
+	virtual void send(ibv_sge sge) { src.qp.send(sge); }
+	virtual void recv(ibv_sge sge) { dst.qp.recv(sge); }
+	virtual void rdma_src(ibv_sge src_sge, ibv_sge dst_sge,
+			      enum ibv_wr_opcode opcode) {
+		src.qp.rdma(src_sge, dst_sge, opcode);
+	}
+	virtual void rdma_dst(ibv_sge src_sge, ibv_sge dst_sge,
+			      enum ibv_wr_opcode opcode) {
+		dst.qp.rdma(src_sge, dst_sge, opcode);
+	}
+	virtual void poll_src() { src.cq.poll(1); }
+	virtual void poll_dst() { dst.cq.poll(1); }
+};
+
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+struct odp_side_dci : public odp_side {
+	ibvt_cq cq;
+	ibvt_qp_dc qp;
+
+	odp_side_dci(ibvt_env &e, ibvt_ctx &c, ibvt_pd &p, int a) :
+		odp_side(e, c, p, a),
+		cq(e, ctx),
+		qp(e, pd, cq) {}
+
+	virtual void init() {
+		EXEC(qp.init());
+	}
+};
+
+struct odp_side_dct : public odp_side {
+	ibvt_cq cq;
+	ibvt_srq srq;
+	ibvt_dct dct;
+
+	odp_side_dct(ibvt_env &e, ibvt_ctx &c, ibvt_pd &p, int a) :
+		odp_side(e, c, p, a),
+		cq(e, ctx),
+		srq(e, pd, cq),
+		dct(e, pd, cq, srq) {}
+
+	virtual void init() {
+		EXEC(dct.init());
+	}
+};
+
+struct odp_dc : public odp_trans {
+	ibvt_ctx &ctx;
+	ibvt_pd &pd;
+	odp_side_dci src;
+	odp_side_dct dst;
+
+	odp_dc(odp_base &e) :
+		odp_trans(e),
+		ctx(e.ctx),
+		pd(e.pd),
+		src(e, e.ctx, e.pd, e.src_access_flags),
+		dst(e, e.ctx, e.pd, e.dst_access_flags) {}
+
+	virtual void init() {
+		INIT(src.init());
+		INIT(dst.init());
+		INIT(src.qp.connect(&dst.dct));
+	}
+
+	virtual void send(ibv_sge sge) { src.qp.send(sge); }
+	virtual void recv(ibv_sge sge) { dst.srq.recv(sge); }
+	virtual void rdma_src(ibv_sge src_sge, ibv_sge dst_sge,
+			      enum ibv_wr_opcode opcode) {
+		src.qp.rdma(src_sge, dst_sge, opcode);
+	}
+	virtual void rdma_dst(ibv_sge src_sge, ibv_sge dst_sge,
+			      enum ibv_wr_opcode opcode) {
+		FAIL();
+	}
+	virtual void poll_src() { src.cq.poll(1); }
+	virtual void poll_dst() { dst.cq.poll(1); }
+
+};
+#endif
 
 struct odp_off : public odp_mem {
 	odp_off(odp_side &s, odp_side &d) : odp_mem(s, d) {}
@@ -273,18 +386,16 @@ struct odp_send : public odp_base {
 
 		EXEC(check_stats(2, 0));
 		for (int i = 0; i < count; i++) {
-			EXEC(dst.qp.recv(mem().dst().sge(len/count*i, len/count)));
-			EXEC(src.qp.send(mem().src().sge(len/count*i, len/count)));
-			EXEC(src.cq.poll(1));
-			EXEC(dst.cq.poll(1));
+			EXEC(trans().recv(mem().dst().sge(len/count*i, len/count)));
+			EXEC(trans().send(mem().src().sge(len/count*i, len/count)));
+			EXEC(trans().poll_src());
+			EXEC(trans().poll_dst());
 		}
 		EXEC(check_stats(2, len / 0x1000 * 2));
 
 		EXEC(mem().dst().check());
 		EXEC(mem().unreg());
 	}
-
-
 };
 
 struct odp_rdma_read : public odp_base {
@@ -298,10 +409,10 @@ struct odp_rdma_read : public odp_base {
 
 		EXEC(check_stats(2, 0));
 		for (int i = 0; i < count; i++) {
-			EXEC(dst.qp.rdma(mem().dst().sge(len/count*i, len/count),
+			EXEC(trans().rdma_dst(mem().dst().sge(len/count*i, len/count),
 					 mem().src().sge(len/count*i, len/count),
 					 IBV_WR_RDMA_READ));
-			EXEC(dst.cq.poll(1));
+			EXEC(trans().poll_dst());
 		}
 		EXEC(check_stats(2, len / 0x1000 * 2));
 		EXEC(mem().dst().check());
@@ -320,10 +431,10 @@ struct odp_rdma_write : public odp_base {
 
 		EXEC(check_stats(2, 0));
 		for (int i = 0; i < count; i++) {
-			EXEC(src.qp.rdma(mem().src().sge(len/count*i, len/count),
+			EXEC(trans().rdma_src(mem().src().sge(len/count*i, len/count),
 						mem().dst().sge(len/count*i, len/count),
 						IBV_WR_RDMA_WRITE));
-			EXEC(src.cq.poll(1));
+			EXEC(trans().poll_src());
 		}
 		EXEC(check_stats(2, len / 0x1000 * 2));
 		EXEC(mem().dst().check());
@@ -331,43 +442,59 @@ struct odp_rdma_write : public odp_base {
 	}
 };
 
-template <typename T1, typename T2>
+template <typename T1, typename T2, typename T3>
 struct types {
 	typedef T1 MEM;
-	typedef T2 OP;
+	typedef T2 TRANS;
+	typedef T3 OP;
 };
 
 template <typename T>
 struct odp : public T::OP {
+	typename T::TRANS _trans;
 	typename T::MEM _mem;
-	odp(): T::OP(), _mem(T::OP::src, T::OP::dst) {}
+	odp():
+		T::OP(),
+		_trans(*this),
+		_mem(_trans.src, _trans.dst) {}
 	odp_mem &mem() { return _mem; }
+	odp_trans &trans() { return _trans; }
 	virtual void init() {
 		INIT(T::OP::init());
+		INIT(_trans.init());
 		INIT(_mem.init());
 	}
 };
 
 typedef testing::Types<
-	types<odp_explicit, odp_send>,
-	types<odp_explicit, odp_rdma_read>,
-	types<odp_explicit, odp_rdma_write>,
+	types<odp_explicit, odp_rc, odp_send>,
+	types<odp_explicit, odp_rc, odp_rdma_read>,
+	types<odp_explicit, odp_rc, odp_rdma_write>,
 #ifdef HAVE_PREFETCH
-	types<odp_prefetch, odp_send>,
-	types<odp_prefetch, odp_rdma_read>,
-	types<odp_prefetch, odp_rdma_write>,
+	types<odp_prefetch, odp_rc, odp_send>,
+	types<odp_prefetch, odp_rc, odp_rdma_read>,
+	types<odp_prefetch, odp_rc, odp_rdma_write>,
 #endif
-	types<odp_implicit, odp_send>,
-	types<odp_implicit, odp_rdma_read>,
-	types<odp_implicit, odp_rdma_write>,
+	types<odp_implicit, odp_rc, odp_send>,
+	types<odp_implicit, odp_rc, odp_rdma_read>,
+	types<odp_implicit, odp_rc, odp_rdma_write>,
 #if HAVE_DECL_IBV_ACCESS_HUGETLB
-	types<odp_hugetlb, odp_send>,
-	types<odp_hugetlb, odp_rdma_read>,
-	types<odp_hugetlb, odp_rdma_write>,
+	types<odp_hugetlb, odp_rc, odp_send>,
+	types<odp_hugetlb, odp_rc, odp_rdma_read>,
+	types<odp_hugetlb, odp_rc, odp_rdma_write>,
 #endif
-	types<odp_off, odp_send>,
-	types<odp_off, odp_rdma_read>,
-	types<odp_off, odp_rdma_write>
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+	types<odp_explicit, odp_dc, odp_send>,
+	types<odp_explicit, odp_dc, odp_rdma_write>,
+	types<odp_implicit, odp_dc, odp_send>,
+	types<odp_implicit, odp_dc, odp_rdma_write>,
+	types<odp_off, odp_dc, odp_send>,
+	types<odp_off, odp_dc, odp_rdma_write>,
+#endif
+	types<odp_off, odp_rc, odp_send>,
+	types<odp_off, odp_rc, odp_rdma_read>,
+	types<odp_off, odp_rc, odp_rdma_write>
+
 > odp_env_list;
 
 #ifdef __x86_64__

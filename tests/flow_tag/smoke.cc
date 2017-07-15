@@ -206,7 +206,7 @@ struct ibvt_raw_qp : public ibvt_qp {
 
 	}
 
-	virtual void connect() {
+	virtual void connect(ibvt_qp *r) {
 		struct ibv_qp_attr attr;
 		int flags;
 
@@ -412,7 +412,7 @@ struct flow_tag_test : public testing::Test, public ibvt_env {
 	struct ibvt_pd pd_send;
 	struct ibvt_cq cq_recv;
 	struct ibvt_cq cq_send;
-	struct ibvt_raw_qp qp_recv; 
+	struct ibvt_raw_qp qp_recv;
 	struct ibvt_raw_qp qp_send;
 	struct ibvt_mr mr_recv;
 	struct ibvt_mr mr_send;
@@ -460,8 +460,8 @@ TEST_F(flow_tag_test, t0) {
 	CHK_SUT(basic);
 	EXEC(qp_recv.set_up_flow_rules(&flow_rules));
 	EXEC(qp_recv.recv(mr_recv.sge(0, len)));
-	EXEC(qp_recv.connect());
-	EXEC(qp_send.connect());
+	EXEC(qp_recv.connect(NULL));
+	EXEC(qp_send.connect(NULL));
 	EXEC(qp_recv.flow_tag_create_rules(qp_recv.qp, flow_rules));
         EXEC(qp_send.send_raw_packet(this->mr_send.buff, 1));
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
@@ -478,8 +478,8 @@ TEST_F(flow_tag_test, t1) {
 	CHK_SUT(basic);
 	EXEC(qp_recv.set_up_flow_rules(&flow_rules));
 	EXEC(qp_recv.recv(mr_recv.sge(0, len)));
-	EXEC(qp_recv.connect());
-	EXEC(qp_send.connect());
+	EXEC(qp_recv.connect(NULL));
+	EXEC(qp_send.connect(NULL));
 	EXEC(qp_recv.flow_tag_create_rules(qp_recv.qp, flow_rules));
         EXEC(qp_send.send_raw_packet(this->mr_send.buff, 0));
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));

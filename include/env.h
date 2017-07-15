@@ -826,6 +826,8 @@ struct ibvt_qp : public ibvt_obj {
 	virtual void send(ibv_sge sge) {
 		post_send(sge, IBV_WR_SEND);
 	}
+
+	virtual void connect(ibvt_qp *remote) = 0;
 };
 
 struct ibvt_qp_rc : public ibvt_qp {
@@ -1064,6 +1066,28 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 		wr.dc.dct_access_key = DC_KEY;
 
 		DO(ibv_exp_post_send(qp, &wr, &bad_wr));
+	}
+
+	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode, enum ibv_send_flags flags = IBV_SEND_SIGNALED) {
+		struct ibv_send_wr wr;
+		struct ibv_send_wr *bad_wr = NULL;
+
+		memset(&wr, 0, sizeof(wr));
+		wr.next = NULL;
+		wr.wr_id = 0;
+		wr.sg_list = &src_sge;
+		wr.num_sge = 1;
+		wr._wr_opcode = opcode;
+		wr._wr_send_flags = flags;
+
+		wr.dc.ah = ah;
+		wr.dc.dct_number = dremote->dct->dct_num;
+		wr.dc.dct_access_key = DC_KEY;
+
+		wr.wr.rdma.remote_addr = dst_sge.addr;
+		wr.wr.rdma.rkey = dst_sge.lkey;
+
+		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 };
 #endif
