@@ -100,6 +100,8 @@
 #define IBV_WC_TM_MATCH IBV_EXP_WC_TM_MATCH
 #define IBV_WC_TM_DATA_VALID IBV_EXP_WC_TM_DATA_VALID
 #define ibv_rvh ibv_tmh_rvh
+#define IBV_SRQ_INIT_ATTR_TM IBV_EXP_CREATE_SRQ_TM
+#define IBV_SRQT_TM IBV_EXP_SRQT_TAG_MATCHING
 
 #else
 #define exp_opcode opcode
@@ -136,9 +138,6 @@ DEF_ENUM_TO_STR_BEGIN(ibv_wc_opcode)
 DEF_ibv_wc_opcode
 DEF_ENUM_TO_STR_END
 
-//#define max(a, b) ((a) > (b) ? (a) : (b))
-
-
 struct tag_matching_base : public ibvt_env {
 	int phase_cnt;
 };
@@ -151,14 +150,8 @@ struct ibvt_srq_tm : public ibvt_srq {
 
 	virtual void init_attr(struct ibv_srq_init_attr_ex &attr) {
 		ibvt_srq::init_attr(attr);
-#ifndef HAVE_INFINIBAND_VERBS_EXP_H
-		attr.comp_mask |=
-			IBV_SRQ_INIT_ATTR_TAG_MATCHING;
-		attr.srq_type = IBV_SRQT_TAG_MATCHING;
-#else
-		attr.comp_mask |= IBV_EXP_CREATE_SRQ_TM;
-		attr.srq_type = IBV_EXP_SRQT_TAG_MATCHING;
-#endif
+		attr.comp_mask |= IBV_SRQ_INIT_ATTR_TM;
+		attr.srq_type = IBV_SRQT_TM;
 		attr.tm_cap.max_ops = 10;
 		attr.tm_cap.max_num_tags = 63;
 	}

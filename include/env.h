@@ -164,6 +164,11 @@
 #define ibv_post_send			ibv_exp_post_send
 #define ibv_send_wr			ibv_exp_send_wr
 
+#define ibv_wc				ibv_exp_wc
+#define ibv_poll_cq(a,b,c)		ibv_exp_poll_cq(a,b,c,sizeof(*(c)))
+#define ibv_wc_opcode			ibv_exp_wc_opcode
+#define _wc_opcode			exp_opcode
+#define wc_flags			exp_wc_flags
 
 #else
 
@@ -181,6 +186,7 @@
 
 #define _wr_opcode			opcode
 #define _wr_send_flags			send_flags
+#define _wc_opcode			opcode
 
 #endif
 
@@ -505,12 +511,15 @@ struct ibvt_cq : public ibvt_obj {
 		ASSERT_GT(retries,0) << "errno: " << errno;
 
 		for (int i=0; i<result; i++) {
-			VERBS_TRACE("poll status %s(%d) opcode %d len %d qp %x lid %x\n",
+			VERBS_TRACE("poll status %s(%d) opcode %d len %d qp %x lid %x flags %lx\n",
 					ibv_wc_status_str(wc[i].status),
-					wc[i].status, wc[i].opcode, wc[i].byte_len, wc[i].qp_num, wc[i].slid);
+					wc[i].status, wc[i]._wc_opcode,
+					wc[i].byte_len, wc[i].qp_num,
+					wc[i].slid, wc[i].wc_flags);
 			ASSERT_FALSE(wc[i].status) << ibv_wc_status_str(wc[i].status);
 		}
 	}
+
 	virtual void poll_arrive(int n) {
 		struct ibv_wc wc[n];
 		int result = 0, retries = POLL_RETRIES;

@@ -103,7 +103,7 @@ AM_CONDITIONAL([PEER_DIRECT], [test x$peerdirect = x1])
 AM_CONDITIONAL([PEER_DIRECT_INVALIDATION_TEST],
     [test x$with_peerdirect_meminval = xyes])
 
-AC_CHECK_DECL([IBV_SRQT_TAG_MATCHING], [tag_matching=1], [], [
+AC_CHECK_DECL([IBV_SRQT_TM], [tag_matching=1], [], [
 #include <infiniband/verbs.h>
 ])
 AC_CHECK_DECL([IBV_EXP_SRQT_TAG_MATCHING], [tag_matching=1], [], [
