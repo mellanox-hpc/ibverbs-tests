@@ -144,6 +144,20 @@ struct tag_matching_base : public ibvt_env {
 
 struct ibvt_srq_tm : public ibvt_srq {
 	tag_matching_base &tm;
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+	struct ibv_exp_srq_dc_offload_params dc_op;
+	void init_attr_dc(struct ibv_srq_init_attr_ex &attr) {
+		dc_op.timeout = 12;
+		dc_op.path_mtu = IBV_MTU_512;
+		dc_op.pkey_index = 0;
+		dc_op.sl = 0;
+		dc_op.dct_key = DC_KEY;
+		attr.comp_mask |= IBV_EXP_CREATE_SRQ_DC_OFFLOAD_PARAMS;
+		attr.dc_offload_params = &dc_op;
+	}
+#else
+	void init_attr_dc(struct ibv_srq_init_attr_ex &attr) {}
+#endif
 
 	ibvt_srq_tm(tag_matching_base &e, ibvt_pd &p, ibvt_cq &c) :
 		 ibvt_srq(e, p, c), tm(e) {}
@@ -154,6 +168,8 @@ struct ibvt_srq_tm : public ibvt_srq {
 		attr.srq_type = IBV_SRQT_TM;
 		attr.tm_cap.max_ops = 10;
 		attr.tm_cap.max_num_tags = 63;
+
+		init_attr_dc(attr);
 	}
 
 	virtual void unexp(ibvt_mr &mr, int start, int length) {
