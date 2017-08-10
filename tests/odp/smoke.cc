@@ -128,13 +128,16 @@ struct odp_side : public ibvt_obj {
 		ctx(c),
 		pd(p),
 		access_flags(a) {}
+
+	virtual ibvt_qp &get_qp() = 0;
 };
 
-struct odp_side_rc : public odp_side {
+template<typename QP>
+struct odp_side_qp : public odp_side {
 	ibvt_cq cq;
-	ibvt_qp_rc qp;
+	QP qp;
 
-	odp_side_rc(ibvt_env &e, ibvt_ctx &c, ibvt_pd &p, int a) :
+	odp_side_qp(ibvt_env &e, ibvt_ctx &c, ibvt_pd &p, int a) :
 		odp_side(e, c, p, a),
 		cq(e, ctx),
 		qp(e, pd, cq) {}
@@ -142,6 +145,8 @@ struct odp_side_rc : public odp_side {
 	virtual void init() {
 		EXEC(qp.init());
 	}
+
+	virtual ibvt_qp &get_qp() { return qp; }
 };
 
 struct odp_mem : public ibvt_obj {
@@ -212,13 +217,14 @@ struct odp_base : public testing::Test, public ibvt_env {
 	}
 };
 
-struct odp_rc : public odp_trans {
+template<typename QP>
+struct odp_qp : public odp_trans {
 	ibvt_ctx &ctx;
 	ibvt_pd &pd;
-	odp_side_rc src;
-	odp_side_rc dst;
+	odp_side_qp<QP> src;
+	odp_side_qp<QP> dst;
 
-	odp_rc(odp_base &e) :
+	odp_qp(odp_base &e) :
 		odp_trans(e),
 		ctx(e.ctx),
 		pd(e.pd),
@@ -246,6 +252,8 @@ struct odp_rc : public odp_trans {
 	virtual void poll_dst() { dst.cq.poll(1); }
 };
 
+typedef odp_qp<ibvt_qp_rc> odp_rc;
+
 #ifdef HAVE_INFINIBAND_VERBS_EXP_H
 struct odp_side_dci : public odp_side {
 	ibvt_cq cq;
@@ -259,22 +267,28 @@ struct odp_side_dci : public odp_side {
 	virtual void init() {
 		EXEC(qp.init());
 	}
+
+	virtual ibvt_qp &get_qp() { return qp; }
 };
 
 struct odp_side_dct : public odp_side {
 	ibvt_cq cq;
 	ibvt_srq srq;
 	ibvt_dct dct;
+	ibvt_qp_rc _qp;
 
 	odp_side_dct(ibvt_env &e, ibvt_ctx &c, ibvt_pd &p, int a) :
 		odp_side(e, c, p, a),
 		cq(e, ctx),
 		srq(e, pd, cq),
-		dct(e, pd, cq, srq) {}
+		dct(e, pd, cq, srq),
+		_qp(e, p, cq) {}
 
 	virtual void init() {
 		EXEC(dct.init());
 	}
+
+	virtual ibvt_qp &get_qp() { return _qp; }
 };
 
 struct odp_dc : public odp_trans {
@@ -370,6 +384,74 @@ struct odp_implicit : public odp_mem {
 		dimr.init();
 	}
 };
+
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+struct ibvt_qp_rc_umr : public ibvt_qp_rc {
+	ibvt_qp_rc_umr(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) :
+		ibvt_qp_rc(e, p, c) {}
+
+	virtual void init_attr(struct ibv_qp_init_attr_ex &attr) {
+		ibvt_qp_rc::init_attr(attr);
+		attr.comp_mask |= IBV_EXP_QP_INIT_ATTR_CREATE_FLAGS;
+		attr.comp_mask |= IBV_EXP_QP_INIT_ATTR_MAX_INL_KLMS;
+		attr.exp_create_flags |= IBV_EXP_QP_CREATE_UMR;
+		attr.max_inl_send_klms = 3;
+	}
+};
+
+typedef odp_qp<ibvt_qp_rc_umr> odp_rc_umr;
+
+struct ibvt_mw : public ibvt_mr {
+	ibvt_mr &master;
+	ibvt_qp &qp;
+
+	ibvt_mw(ibvt_mr &i, intptr_t a, size_t size, ibvt_qp &q) :
+		ibvt_mr(i.env, i.pd, size, a), master(i), qp(q) {}
+
+	virtual void init() {
+		int flags = MAP_PRIVATE|MAP_ANON;
+		if (addr)
+			flags |= MAP_FIXED;
+		buff = (char*)mmap((void*)addr, size, PROT_READ|PROT_WRITE, flags, -1, 0);
+		ASSERT_NE(buff, MAP_FAILED);
+
+		struct ibv_exp_create_mr_in mr_in = {};
+		mr_in.pd = pd.pd;
+		mr_in.attr.create_flags = IBV_EXP_MR_INDIRECT_KLMS;
+		mr_in.attr.max_klm_list_size = 3;
+		mr_in.attr.exp_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+		mr_in.comp_mask = 0;
+		SET(mr, ibv_exp_create_mr(&mr_in));
+
+		struct ibv_exp_mem_region mem_reg = {};
+		mem_reg.base_addr = (intptr_t)buff;
+		mem_reg.length = size;
+		mem_reg.mr = master.mr;
+
+		struct ibv_exp_send_wr wr = {}, *bad_wr = NULL;
+		wr.exp_opcode = IBV_EXP_WR_UMR_FILL;
+		wr.ext_op.umr.umr_type = IBV_EXP_UMR_MR_LIST;
+		wr.ext_op.umr.exp_access = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+		wr.ext_op.umr.modified_mr = mr;
+		wr.ext_op.umr.num_mrs = 1;
+		wr.ext_op.umr.mem_list.mem_reg_list = &mem_reg;
+		wr.ext_op.umr.base_addr = (intptr_t)buff;
+		wr.exp_send_flags = IBV_EXP_SEND_INLINE;
+
+		DO(ibv_exp_post_send(qp.qp, &wr, &bad_wr));
+	}
+};
+
+struct odp_implicit_mw : public odp_implicit {
+	odp_implicit_mw(odp_side &s, odp_side &d) :
+		odp_implicit(s, d) {};
+
+	virtual void reg(unsigned long src_addr, unsigned long dst_addr, size_t len) {
+		SET(psrc, new ibvt_mw(simr, src_addr, len, ssrc.get_qp()));
+		SET(pdst, new ibvt_mw(dimr, dst_addr, len, sdst.get_qp()));
+	}
+};
+#endif
 
 #define ODP_CHK_SUT(len) \
 	this->check_ram("MemAvailable:", len * 3); \
@@ -490,6 +572,10 @@ typedef testing::Types<
 	types<odp_implicit, odp_dc, odp_rdma_write>,
 	types<odp_off, odp_dc, odp_send>,
 	types<odp_off, odp_dc, odp_rdma_write>,
+
+	types<odp_implicit_mw, odp_rc_umr, odp_send>,
+	types<odp_implicit_mw, odp_rc_umr, odp_rdma_read>,
+	types<odp_implicit_mw, odp_rc_umr, odp_rdma_write>,
 #endif
 	types<odp_off, odp_rc, odp_send>,
 	types<odp_off, odp_rc, odp_rdma_read>,
