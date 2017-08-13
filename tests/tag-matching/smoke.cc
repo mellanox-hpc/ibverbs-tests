@@ -100,6 +100,8 @@
 #define IBV_WC_TM_MATCH IBV_EXP_WC_TM_MATCH
 #define IBV_WC_TM_DATA_VALID IBV_EXP_WC_TM_DATA_VALID
 #define ibv_rvh ibv_tmh_rvh
+#define IBV_SRQ_INIT_ATTR_TM IBV_EXP_CREATE_SRQ_TM
+#define IBV_SRQT_TM IBV_EXP_SRQT_TAG_MATCHING
 
 #else
 #define exp_opcode opcode
@@ -136,31 +138,38 @@ DEF_ENUM_TO_STR_BEGIN(ibv_wc_opcode)
 DEF_ibv_wc_opcode
 DEF_ENUM_TO_STR_END
 
-//#define max(a, b) ((a) > (b) ? (a) : (b))
-
-
 struct tag_matching_base : public ibvt_env {
 	int phase_cnt;
 };
 
 struct ibvt_srq_tm : public ibvt_srq {
 	tag_matching_base &tm;
+#if HAVE_DECL_IBV_EXP_CREATE_SRQ_DC_OFFLOAD_PARAMS
+	struct ibv_exp_srq_dc_offload_params dc_op;
+	void init_attr_dc(struct ibv_srq_init_attr_ex &attr) {
+		dc_op.timeout = 12;
+		dc_op.path_mtu = IBV_MTU_512;
+		dc_op.pkey_index = 0;
+		dc_op.sl = 0;
+		dc_op.dct_key = DC_KEY;
+		attr.comp_mask |= IBV_EXP_CREATE_SRQ_DC_OFFLOAD_PARAMS;
+		attr.dc_offload_params = &dc_op;
+	}
+#else
+	void init_attr_dc(struct ibv_srq_init_attr_ex &attr) {}
+#endif
 
 	ibvt_srq_tm(tag_matching_base &e, ibvt_pd &p, ibvt_cq &c) :
 		 ibvt_srq(e, p, c), tm(e) {}
 
 	virtual void init_attr(struct ibv_srq_init_attr_ex &attr) {
 		ibvt_srq::init_attr(attr);
-#ifndef HAVE_INFINIBAND_VERBS_EXP_H
-		attr.comp_mask |=
-			IBV_SRQ_INIT_ATTR_TAG_MATCHING;
-		attr.srq_type = IBV_SRQT_TAG_MATCHING;
-#else
-		attr.comp_mask |= IBV_EXP_CREATE_SRQ_TM;
-		attr.srq_type = IBV_EXP_SRQT_TAG_MATCHING;
-#endif
+		attr.comp_mask |= IBV_SRQ_INIT_ATTR_TM;
+		attr.srq_type = IBV_SRQT_TM;
 		attr.tm_cap.max_ops = 10;
 		attr.tm_cap.max_num_tags = 63;
+
+		init_attr_dc(attr);
 	}
 
 	virtual void unexp(ibvt_mr &mr, int start, int length) {
@@ -306,7 +315,7 @@ struct ibvt_cq_tm: public ibvt_cq {
 
 	virtual void poll(int n) {
 		struct ibv_cq_ex *cq2 = (struct ibv_cq_ex *)cq;
-		int result = 0, retries = POLL_RETRIES;
+		long result = 0, retries = POLL_RETRIES;
 		struct ibv_wc_tm_info tm_info = {};
 		struct ibv_poll_cq_attr attr = {};
 		struct ibv_wc wc = {};
@@ -822,6 +831,7 @@ TYPED_TEST(tag_matching, r3_remove) {
 
 TYPED_TEST(tag_matching, s0_append_remove) {
 	int i[10];
+	CHK_SUT(tag-matching);
 	EXEC(srq.append(this->dst_mr, 0, this->SZ(), 0x111, &i[0]));
 	EXEC(srq.append(this->dst_mr, 0, this->SZ(), 0x222, &i[1]));
 	EXEC(srq.append(this->dst_mr, 0, this->SZ(), 0x333, &i[2]));

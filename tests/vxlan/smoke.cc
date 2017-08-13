@@ -207,7 +207,7 @@ struct ibvt_raw_qp : public ibvt_qp {
 
 	}
 
-	virtual void connect() {
+	virtual void connect(struct ibvt_qp *r) {
 		struct ibv_qp_attr attr;
 		int flags;
 
@@ -575,8 +575,8 @@ TEST_F(vxlan_test, t0) {
 	EXEC(qp_recv.set_up_flow_rules(&flow_rules));
 #endif
 	EXEC(qp_recv.recv(mr_recv.sge(0, len)));
-	EXEC(qp_recv.connect());
-	EXEC(qp_send.connect());
+	EXEC(qp_recv.connect(NULL));
+	EXEC(qp_send.connect(NULL));
 #ifdef HAVE_VXLAN
 	EXEC(qp_recv.vxlan_create_rules(qp_recv.qp, flow_rules));
 	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 1));
@@ -597,8 +597,8 @@ TEST_F(vxlan_test, t1) {
 	EXEC(qp_recv.set_up_flow_rules(&flow_rules));
 #endif
 	EXEC(qp_recv.recv(mr_recv.sge(0, len)));
-	EXEC(qp_recv.connect());
-	EXEC(qp_send.connect());
+	EXEC(qp_recv.connect(NULL));
+	EXEC(qp_send.connect(NULL));
 #ifdef HAVE_VXLAN
 	EXEC(qp_recv.vxlan_create_rules(qp_recv.qp, flow_rules));
 	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 0));
@@ -619,8 +619,8 @@ TEST_F(vxlan_test, t2) {
 	EXEC(qp_recv.set_up_flow_rules(&flow_rules));
 #endif
 	EXEC(qp_recv.recv(mr_recv.sge(0, len)));
-	EXEC(qp_recv.connect());
-	EXEC(qp_send.connect());
+	EXEC(qp_recv.connect(NULL));
+	EXEC(qp_send.connect(NULL));
 #ifdef HAVE_VXLAN
 	EXEC(qp_recv.vxlan_create_rules(qp_recv.qp, flow_rules));
 	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 1));

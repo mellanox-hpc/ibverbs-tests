@@ -164,6 +164,11 @@
 #define ibv_post_send			ibv_exp_post_send
 #define ibv_send_wr			ibv_exp_send_wr
 
+#define ibv_wc				ibv_exp_wc
+#define ibv_poll_cq(a,b,c)		ibv_exp_poll_cq(a,b,c,sizeof(*(c)))
+#define ibv_wc_opcode			ibv_exp_wc_opcode
+#define _wc_opcode			exp_opcode
+#define wc_flags			exp_wc_flags
 
 #else
 
@@ -181,6 +186,7 @@
 
 #define _wr_opcode			opcode
 #define _wr_send_flags			send_flags
+#define _wc_opcode			opcode
 
 #endif
 
@@ -263,7 +269,11 @@
 		} \
 	} while(0)
 
-#define POLL_RETRIES 80000000
+#ifdef PALLADIUM
+#define POLL_RETRIES 8000000000ULL
+#else
+#define POLL_RETRIES 80000000ULL
+#endif
 
 #define ACTIVE (1 << 0)
 
@@ -493,7 +503,7 @@ struct ibvt_cq : public ibvt_obj {
 
 	virtual void poll(int n) {
 		struct ibv_wc wc[n];
-		int result = 0, retries = POLL_RETRIES;
+		long result = 0, retries = POLL_RETRIES;
 
 		VERBS_TRACE("%d.%p polling...\n", __LINE__, this);
 
@@ -505,15 +515,18 @@ struct ibvt_cq : public ibvt_obj {
 		ASSERT_GT(retries,0) << "errno: " << errno;
 
 		for (int i=0; i<result; i++) {
-			VERBS_TRACE("poll status %s(%d) opcode %d len %d qp %x lid %x\n",
+			VERBS_TRACE("poll status %s(%d) opcode %d len %d qp %x lid %x flags %lx\n",
 					ibv_wc_status_str(wc[i].status),
-					wc[i].status, wc[i].opcode, wc[i].byte_len, wc[i].qp_num, wc[i].slid);
+					wc[i].status, wc[i]._wc_opcode,
+					wc[i].byte_len, wc[i].qp_num,
+					wc[i].slid, wc[i].wc_flags);
 			ASSERT_FALSE(wc[i].status) << ibv_wc_status_str(wc[i].status);
 		}
 	}
+
 	virtual void poll_arrive(int n) {
 		struct ibv_wc wc[n];
-		int result = 0, retries = POLL_RETRIES;
+		long result = 0, retries = POLL_RETRIES;
 
 		VERBS_TRACE("%d.%p polling...\n", __LINE__, this);
 
@@ -576,7 +589,10 @@ struct ibvt_mr : public ibvt_obj {
 	long access_flags;
 	char *buff;
 
-	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a = 0, long af = IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_READ|IBV_ACCESS_REMOTE_WRITE) :
+	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a = 0,
+		long af = IBV_ACCESS_LOCAL_WRITE |
+			  IBV_ACCESS_REMOTE_READ |
+			  IBV_ACCESS_REMOTE_WRITE) :
 		ibvt_obj(e),
 		mr(NULL),
 		pd(p),
@@ -644,7 +660,7 @@ struct ibvt_mr_hdr : public ibvt_mr {
 
 	virtual void init() {
 		EXEC(ibvt_mr::init());
-		//memset(buff, 0xff, size);
+		memset(buff, 0xff, size);
 	}
 
 	virtual void fill() {
@@ -814,6 +830,8 @@ struct ibvt_qp : public ibvt_obj {
 	virtual void send(ibv_sge sge) {
 		post_send(sge, IBV_WR_SEND);
 	}
+
+	virtual void connect(ibvt_qp *remote) = 0;
 };
 
 struct ibvt_qp_rc : public ibvt_qp {
@@ -1052,6 +1070,28 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 		wr.dc.dct_access_key = DC_KEY;
 
 		DO(ibv_exp_post_send(qp, &wr, &bad_wr));
+	}
+
+	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode, enum ibv_send_flags flags = IBV_SEND_SIGNALED) {
+		struct ibv_send_wr wr;
+		struct ibv_send_wr *bad_wr = NULL;
+
+		memset(&wr, 0, sizeof(wr));
+		wr.next = NULL;
+		wr.wr_id = 0;
+		wr.sg_list = &src_sge;
+		wr.num_sge = 1;
+		wr._wr_opcode = opcode;
+		wr._wr_send_flags = flags;
+
+		wr.dc.ah = ah;
+		wr.dc.dct_number = dremote->dct->dct_num;
+		wr.dc.dct_access_key = DC_KEY;
+
+		wr.wr.rdma.remote_addr = dst_sge.addr;
+		wr.wr.rdma.rkey = dst_sge.lkey;
+
+		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 };
 #endif

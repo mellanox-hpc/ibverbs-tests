@@ -103,7 +103,7 @@ AM_CONDITIONAL([PEER_DIRECT], [test x$peerdirect = x1])
 AM_CONDITIONAL([PEER_DIRECT_INVALIDATION_TEST],
     [test x$with_peerdirect_meminval = xyes])
 
-AC_CHECK_DECL([IBV_SRQT_TAG_MATCHING], [tag_matching=1], [], [
+AC_CHECK_DECL([IBV_SRQT_TM], [tag_matching=1], [], [
 #include <infiniband/verbs.h>
 ])
 AC_CHECK_DECL([IBV_EXP_SRQT_TAG_MATCHING], [tag_matching=1], [], [
@@ -141,6 +141,10 @@ AC_CHECK_DECLS([IBV_ACCESS_HUGETLB], [hugetlb=1], [], [
 #include <infiniband/verbs.h>
 ])
 
+AC_CHECK_DECLS([IBV_EXP_CREATE_SRQ_DC_OFFLOAD_PARAMS], [], [], [
+#include <infiniband/verbs_exp.h>
+])
+
 if test x$cross_channel = x1; then
 	AC_DEFINE(HAVE_CROSS_CHANNEL, 1, [Cross-channel is supported])
 fi
@@ -156,6 +160,11 @@ AC_CHECK_MEMBERS([struct ibv_exp_flow_spec_tunnel.val], [Vxlan_exp=1],
 if test x$Vxlan_exp = x1 || test x$Vxlan = x1; then
 	AC_DEFINE(HAVE_VXLAN, 1, [Vxlan is supported])
 fi
+
+AC_CHECK_DECL([IBV_EXP_SIG_TYPE_T10_DIF], [sig_handover=1], [], [
+#include <infiniband/verbs_exp.h>
+])
+AM_CONDITIONAL([SIG_HANDOVER], [test x$sig_handover = x1])
 
 if test $(basename ${CC}x) = mpiccx; then
     AC_DEFINE(HAVE_MPICC, 1, [Use mpirun as a launcher])

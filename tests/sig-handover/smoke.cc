@@ -1,0 +1,323 @@
+/**
+ * Copyright (C) 2017      Mellanox Technologies Ltd. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in the
+ * documentation and/or other materials provided with the distribution.
+ * 3. Neither the name of the copyright holder nor the names of its
+ * contributors may be used to endorse or promote products derived from
+ * this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+ * TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include <inttypes.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#include <infiniband/verbs_exp.h>
+
+#include "env.h"
+
+#define SZ 1024
+
+struct ibvt_qp_sig : public ibvt_qp_rc {
+	ibvt_qp_sig(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) :
+		ibvt_qp_rc(e, p, c) {}
+
+	virtual void init_attr(struct ibv_qp_init_attr_ex &attr) {
+		ibvt_qp_rc::init_attr(attr);
+		attr.comp_mask |= IBV_EXP_QP_INIT_ATTR_CREATE_FLAGS;
+		attr.exp_create_flags |= IBV_EXP_QP_CREATE_SIGNATURE_EN;
+	}
+
+	virtual void send_2wr(ibv_sge sge, ibv_sge sge2) {
+		struct ibv_send_wr wr = {};
+		struct ibv_send_wr wr2 = {};
+		struct ibv_send_wr *bad_wr = NULL;
+
+		wr.next = &wr2;
+		wr.sg_list = &sge;
+		wr.num_sge = 1;
+		wr._wr_opcode = IBV_WR_SEND;
+
+		wr2.sg_list = &sge2;
+		wr2.num_sge = 1;
+		wr2._wr_opcode = IBV_WR_SEND;
+		wr2._wr_send_flags = IBV_EXP_SEND_SIGNALED |
+				     IBV_EXP_SEND_SIG_PIPELINED;
+
+		DO(ibv_post_send(qp, &wr, &bad_wr));
+	}
+
+
+
+};
+
+struct ibvt_qp_sig_pipeline : public ibvt_qp_sig {
+	ibvt_qp_sig_pipeline(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) :
+		ibvt_qp_sig(e, p, c) {}
+
+	virtual void init_attr(struct ibv_qp_init_attr_ex &attr) {
+		ibvt_qp_sig::init_attr(attr);
+		attr.exp_create_flags |= IBV_EXP_QP_CREATE_SIGNATURE_PIPELINE;
+	}
+
+};
+
+struct ibvt_mr_sig : public ibvt_mr {
+	ibvt_mr_sig(ibvt_env &e, ibvt_pd &p, size_t s) :
+		ibvt_mr(e, p, s) {}
+
+	virtual void init() {
+		struct ibv_exp_create_mr_in in = {};
+		if (mr)
+			return;
+
+		in.pd = pd.pd;
+		in.attr.max_klm_list_size = 1;
+		in.attr.create_flags = IBV_EXP_MR_SIGNATURE_EN;
+		in.attr.exp_access_flags = IBV_ACCESS_LOCAL_WRITE |
+					   IBV_ACCESS_REMOTE_READ |
+					   IBV_ACCESS_REMOTE_WRITE;
+		SET(mr, ibv_exp_create_mr(&in));
+	}
+};
+
+template <typename QP>
+struct sig_test_base : public testing::Test, public ibvt_env {
+	ibvt_ctx ctx;
+	ibvt_pd pd;
+	ibvt_cq cq;
+	QP send_qp;
+	QP recv_qp;
+	ibvt_mr src_mr;
+	ibvt_mr mid_mr;
+	ibvt_mr mid2_mr;
+	ibvt_mr dst_mr;
+	ibvt_mr_sig insert_mr;
+	ibvt_mr_sig check_mr;
+	ibvt_mr_sig strip_mr;
+
+	sig_test_base() :
+		ctx(*this, NULL),
+		pd(*this, ctx),
+		cq(*this, ctx),
+		send_qp(*this, pd, cq),
+		recv_qp(*this, pd, cq),
+		src_mr(*this, pd, 1024),
+		mid_mr(*this, pd, 1040),
+		mid2_mr(*this, pd, 1040),
+		dst_mr(*this, pd, 1024),
+		insert_mr(*this, pd, 1040),
+		check_mr(*this, pd, 1040),
+		strip_mr(*this, pd, 1024)
+	{ }
+
+	#define CHECK_REF_TAG 0x0f
+	#define CHECK_APP_TAG 0x30
+	#define CHECK_GUARD   0xc0
+
+	virtual void config(ibvt_mr &sig_mr, struct ibv_sge data, int mem, int wire) {
+		struct ibv_send_wr wr = {};
+		struct ibv_send_wr *bad_wr;
+		struct ibv_exp_sig_attrs sig = {};
+
+		sig.check_mask |= CHECK_REF_TAG;
+		sig.check_mask |= CHECK_APP_TAG;
+		sig.check_mask |= CHECK_GUARD;
+		if (mem) {
+			sig.mem.sig_type = IBV_EXP_SIG_TYPE_T10_DIF;
+			sig.mem.sig.dif.bg_type = IBV_EXP_T10DIF_CRC;
+			sig.mem.sig.dif.pi_interval = 512;
+			sig.mem.sig.dif.bg = 0x1234;
+			sig.mem.sig.dif.app_tag = 0x5678;
+			sig.mem.sig.dif.ref_tag = 0xabcdef90;
+			sig.mem.sig.dif.ref_remap = 1;
+			sig.mem.sig.dif.app_escape = 1;
+			sig.mem.sig.dif.ref_escape = 1;
+			sig.mem.sig.dif.apptag_check_mask = 0xffff;
+		} else {
+			sig.mem.sig_type = IBV_EXP_SIG_TYPE_NONE;
+		}
+
+		if (wire) {
+			sig.wire.sig_type = IBV_EXP_SIG_TYPE_T10_DIF;
+			sig.wire.sig.dif.bg_type = IBV_EXP_T10DIF_CRC;
+			sig.wire.sig.dif.pi_interval = 512;
+			sig.wire.sig.dif.bg = 0x1234;
+			sig.wire.sig.dif.app_tag = 0x5678;
+			sig.wire.sig.dif.ref_tag = 0xabcdef90;
+			sig.wire.sig.dif.ref_remap = 1;
+			sig.wire.sig.dif.app_escape = 1;
+			sig.wire.sig.dif.ref_escape = 1;
+			sig.wire.sig.dif.apptag_check_mask = 0xffff;
+		} else {
+			sig.wire.sig_type = IBV_EXP_SIG_TYPE_NONE;
+		}
+
+		wr.exp_opcode = IBV_EXP_WR_REG_SIG_MR;
+		wr.exp_send_flags = IBV_EXP_SEND_SIGNALED;
+		wr.ext_op.sig_handover.sig_attrs = &sig;
+		wr.ext_op.sig_handover.sig_mr = sig_mr.mr;
+		wr.ext_op.sig_handover.access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+		wr.ext_op.sig_handover.prot = NULL;
+
+		wr.num_sge = 1;
+		wr.sg_list = &data;
+
+		DO(ibv_post_send(send_qp.qp, &wr, &bad_wr));
+		EXEC(cq.poll(1));
+	}
+
+	void mr_status(ibvt_mr &mr, int expected) {
+		struct ibv_exp_mr_status status;
+
+		DO(ibv_exp_check_mr_status(mr.mr, IBV_EXP_MR_CHECK_SIG_STATUS,
+					   &status));
+		VERBS_INFO("SEGERR %d %x %x %lx\n",
+			   status.sig_err.err_type,
+			   status.sig_err.expected,
+			   status.sig_err.actual,
+			   status.sig_err.sig_err_offset);
+		ASSERT_EQ(expected, status.fail_status);
+	}
+
+	void ae() {
+		struct ibv_async_event event;
+
+		DO(ibv_get_async_event(this->ctx.ctx, &event));
+		ibv_ack_async_event(&event);
+	}
+
+	virtual void SetUp() {
+		INIT(ctx.init());
+		if (skip)
+			return;
+		INIT(send_qp.init());
+		INIT(recv_qp.init());
+		INIT(send_qp.connect(&recv_qp));
+		INIT(recv_qp.connect(&send_qp));
+		INIT(insert_mr.init());
+		INIT(check_mr.init());
+		INIT(strip_mr.init());
+		INIT(src_mr.fill());
+		INIT(mid_mr.init());
+		INIT(mid2_mr.init());
+		INIT(dst_mr.init());
+		INIT(cq.arm());
+	}
+
+	virtual void TearDown() {
+		ASSERT_FALSE(HasFailure());
+	}
+};
+
+typedef sig_test_base<ibvt_qp_sig> sig_test;
+typedef sig_test_base<ibvt_qp_sig_pipeline> sig_test_pipeline;
+
+TEST_F(sig_test, c0) {
+	CHK_SUT(sig_handover);
+	EXEC(config(this->insert_mr, this->src_mr.sge(), 0, 1));
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), 1, 0));
+	EXEC(send_qp.rdma(this->mid_mr.sge(), this->insert_mr.sge(), IBV_WR_RDMA_READ));
+	EXEC(cq.poll(1));
+	EXEC(send_qp.rdma(this->dst_mr.sge(), this->strip_mr.sge(), IBV_WR_RDMA_READ));
+	EXEC(cq.poll(1));
+	EXEC(mr_status(this->strip_mr, 0));
+	EXEC(dst_mr.check());
+}
+
+TEST_F(sig_test, c1) {
+	CHK_SUT(sig_handover);
+	EXEC(config(this->insert_mr, this->src_mr.sge(), 0, 1));
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), 1, 0));
+	EXEC(send_qp.rdma(this->insert_mr.sge(), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(send_qp.rdma(this->strip_mr.sge(), this->dst_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(mr_status(this->strip_mr, 0));
+	EXEC(dst_mr.check());
+}
+
+TEST_F(sig_test, c2) {
+	CHK_SUT(sig_handover);
+	EXEC(config(this->insert_mr, this->src_mr.sge(), 0, 1));
+	EXEC(config(this->check_mr, this->mid_mr.sge(), 1, 1));
+	EXEC(config(this->strip_mr, this->mid2_mr.sge(), 1, 0));
+	EXEC(send_qp.rdma(this->insert_mr.sge(), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(send_qp.rdma(this->check_mr.sge(), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(send_qp.rdma(this->strip_mr.sge(), this->dst_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(mr_status(this->strip_mr, 0));
+	EXEC(dst_mr.check());
+}
+
+TEST_F(sig_test, e0) {
+	CHK_SUT(sig_handover);
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), 1, 0));
+	EXEC(send_qp.rdma(this->dst_mr.sge(), this->strip_mr.sge(), IBV_WR_RDMA_READ));
+	EXEC(cq.poll(1));
+	EXEC(mr_status(this->strip_mr, 1));
+}
+
+TEST_F(sig_test, e1) {
+	CHK_SUT(sig_handover);
+	EXEC(config(this->check_mr, this->mid_mr.sge(), 1, 1));
+	EXEC(send_qp.rdma(this->check_mr.sge(), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(mr_status(this->check_mr, 1));
+}
+
+TEST_F(sig_test_pipeline, p0) {
+	CHK_SUT(sig_handover);
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), 1, 0));
+	EXEC(recv_qp.recv(this->dst_mr.sge()));
+	EXEC(recv_qp.recv(this->dst_mr.sge()));
+	EXEC(send_qp.send_2wr(this->strip_mr.sge(0,1024), this->src_mr.sge()));
+	EXEC(cq.poll(1));
+	EXEC(ae());
+	EXEC(cq.poll(1));
+	EXEC(mr_status(this->strip_mr, 1));
+}
+
+TEST_F(sig_test_pipeline, p1) {
+	CHK_SUT(sig_handover);
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), 1, 0));
+	EXEC(recv_qp.recv(this->dst_mr.sge()));
+	EXEC(recv_qp.recv(this->dst_mr.sge()));
+	EXEC(send_qp.send_2wr(this->strip_mr.sge(0,1024), this->src_mr.sge()));
+	EXEC(cq.poll(1));
+	EXEC(cq.poll(1));
+	EXEC(mr_status(this->strip_mr, 1));
+}
+
+

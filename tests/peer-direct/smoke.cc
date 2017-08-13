@@ -327,7 +327,7 @@ struct ibvt_peer_op : public ibvt_obj {
 
 	void peer_exec() {
 		struct ibv_send_wr *bad_wr = NULL;
-		int retries = POLL_RETRIES;
+		long retries = POLL_RETRIES;
 
 		ctx.ctrl.peek.owner = ~ctx.peek_op_data;
 
