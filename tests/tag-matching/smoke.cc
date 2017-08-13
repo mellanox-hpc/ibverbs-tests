@@ -144,7 +144,7 @@ struct tag_matching_base : public ibvt_env {
 
 struct ibvt_srq_tm : public ibvt_srq {
 	tag_matching_base &tm;
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_DECL_IBV_EXP_CREATE_SRQ_DC_OFFLOAD_PARAMS
 	struct ibv_exp_srq_dc_offload_params dc_op;
 	void init_attr_dc(struct ibv_srq_init_attr_ex &attr) {
 		dc_op.timeout = 12;
@@ -831,6 +831,7 @@ TYPED_TEST(tag_matching, r3_remove) {
 
 TYPED_TEST(tag_matching, s0_append_remove) {
 	int i[10];
+	CHK_SUT(tag-matching);
 	EXEC(srq.append(this->dst_mr, 0, this->SZ(), 0x111, &i[0]));
 	EXEC(srq.append(this->dst_mr, 0, this->SZ(), 0x222, &i[1]));
 	EXEC(srq.append(this->dst_mr, 0, this->SZ(), 0x333, &i[2]));
