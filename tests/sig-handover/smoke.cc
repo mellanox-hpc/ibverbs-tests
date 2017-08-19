@@ -75,9 +75,6 @@ struct ibvt_qp_sig : public ibvt_qp_rc {
 
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
-
-
-
 };
 
 struct ibvt_qp_sig_pipeline : public ibvt_qp_sig {
@@ -118,12 +115,17 @@ struct sig_test_base : public testing::Test, public ibvt_env {
 	QP send_qp;
 	QP recv_qp;
 	ibvt_mr src_mr;
+	ibvt_mr src2_mr;
 	ibvt_mr mid_mr;
 	ibvt_mr mid2_mr;
+	ibvt_mr mid_mr_x2;
 	ibvt_mr dst_mr;
+	ibvt_mr dst_mr_x2;
 	ibvt_mr_sig insert_mr;
+	ibvt_mr_sig insert2_mr;
 	ibvt_mr_sig check_mr;
 	ibvt_mr_sig strip_mr;
+	ibvt_mr_sig strip_mr_x2;
 
 	sig_test_base() :
 		ctx(*this, NULL),
@@ -132,12 +134,17 @@ struct sig_test_base : public testing::Test, public ibvt_env {
 		send_qp(*this, pd, cq),
 		recv_qp(*this, pd, cq),
 		src_mr(*this, pd, 1024),
+		src2_mr(*this, pd, 1024),
 		mid_mr(*this, pd, 1040),
 		mid2_mr(*this, pd, 1040),
+		mid_mr_x2(*this, pd, 2080),
 		dst_mr(*this, pd, 1024),
+		dst_mr_x2(*this, pd, 2048),
 		insert_mr(*this, pd, 1040),
+		insert2_mr(*this, pd, 1040),
 		check_mr(*this, pd, 1040),
-		strip_mr(*this, pd, 1024)
+		strip_mr(*this, pd, 1024),
+		strip_mr_x2(*this, pd, 2048)
 	{ }
 
 	#define CHECK_REF_TAG 0x0f
@@ -149,7 +156,7 @@ struct sig_test_base : public testing::Test, public ibvt_env {
 		struct ibv_send_wr *bad_wr;
 		struct ibv_exp_sig_attrs sig = {};
 
-		sig.check_mask |= CHECK_REF_TAG;
+		//sig.check_mask |= CHECK_REF_TAG;
 		sig.check_mask |= CHECK_APP_TAG;
 		sig.check_mask |= CHECK_GUARD;
 		if (mem) {
@@ -224,13 +231,18 @@ struct sig_test_base : public testing::Test, public ibvt_env {
 		INIT(recv_qp.init());
 		INIT(send_qp.connect(&recv_qp));
 		INIT(recv_qp.connect(&send_qp));
-		INIT(insert_mr.init());
-		INIT(check_mr.init());
-		INIT(strip_mr.init());
 		INIT(src_mr.fill());
+		INIT(src2_mr.fill());
 		INIT(mid_mr.init());
 		INIT(mid2_mr.init());
+		INIT(mid_mr_x2.init());
 		INIT(dst_mr.init());
+		INIT(dst_mr_x2.init());
+		INIT(insert_mr.init());
+		INIT(insert2_mr.init());
+		INIT(check_mr.init());
+		INIT(strip_mr.init());
+		INIT(strip_mr_x2.init());
 		INIT(cq.arm());
 	}
 
@@ -279,6 +291,45 @@ TEST_F(sig_test, c2) {
 	EXEC(cq.poll(1));
 	EXEC(mr_status(this->strip_mr, 0));
 	EXEC(dst_mr.check());
+}
+
+TEST_F(sig_test, c3) {
+	CHK_SUT(sig_handover);
+	EXEC(config(this->insert_mr, this->src_mr.sge(), 0, 1));
+	EXEC(config(this->check_mr, this->mid_mr.sge(), 1, 1));
+	EXEC(config(this->strip_mr, this->mid2_mr.sge(), 1, 0));
+	EXEC(send_qp.rdma(this->insert_mr.sge(), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(send_qp.rdma(this->check_mr.sge(), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(send_qp.rdma(this->strip_mr.sge(), this->dst_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(send_qp.rdma(this->insert_mr.sge(), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(send_qp.rdma(this->check_mr.sge(), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(send_qp.rdma(this->strip_mr.sge(), this->dst_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(mr_status(this->strip_mr, 0));
+	EXEC(dst_mr.check());
+}
+
+TEST_F(sig_test, c4) {
+	CHK_SUT(sig_handover);
+	EXEC(config(this->insert_mr, this->src_mr.sge(), 0, 1));
+	EXEC(config(this->insert2_mr, this->src2_mr.sge(), 0, 1));
+	EXEC(config(this->strip_mr_x2, this->mid_mr_x2.sge(), 1, 0));
+	EXEC(send_qp.rdma2(this->insert_mr.sge(),
+			   this->insert2_mr.sge(),
+			   this->mid_mr_x2.sge(),
+			   IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(send_qp.rdma(this->strip_mr_x2.sge(),
+			  this->dst_mr_x2.sge(),
+			  IBV_WR_RDMA_WRITE));
+	EXEC(cq.poll(1));
+	EXEC(mr_status(this->strip_mr_x2, 0));
+	EXEC(dst_mr_x2.check());
 }
 
 TEST_F(sig_test, e0) {
