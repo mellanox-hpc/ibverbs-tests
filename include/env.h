@@ -827,6 +827,32 @@ struct ibvt_qp : public ibvt_obj {
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 
+	virtual void rdma2(ibv_sge src_sge1,
+			   ibv_sge src_sge2,
+			   ibv_sge dst_sge,
+			   enum ibv_wr_opcode opcode,
+			   enum ibv_send_flags flags = IBV_SEND_SIGNALED) {
+		struct ibv_send_wr wr;
+		struct ibv_send_wr *bad_wr = NULL;
+		struct ibv_sge sg[2];
+
+
+		sg[0] = src_sge1;
+		sg[1] = src_sge2;
+		memset(&wr, 0, sizeof(wr));
+		wr.next = NULL;
+		wr.wr_id = 0;
+		wr.sg_list = sg;
+		wr.num_sge = 2;
+		wr._wr_opcode = opcode;
+		wr._wr_send_flags = flags;
+
+		wr.wr.rdma.remote_addr = dst_sge.addr;
+		wr.wr.rdma.rkey = dst_sge.lkey;
+
+		DO(ibv_post_send(qp, &wr, &bad_wr));
+	}
+
 	virtual void send(ibv_sge sge) {
 		post_send(sge, IBV_WR_SEND);
 	}
