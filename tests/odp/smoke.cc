@@ -566,9 +566,7 @@ typedef testing::Types<
 	types<odp_hugetlb, odp_rc, odp_rdma_write>,
 #endif
 #ifdef HAVE_INFINIBAND_VERBS_EXP_H
-	types<odp_explicit, odp_dc, odp_send>,
 	types<odp_explicit, odp_dc, odp_rdma_write>,
-	types<odp_implicit, odp_dc, odp_send>,
 	types<odp_implicit, odp_dc, odp_rdma_write>,
 	types<odp_off, odp_dc, odp_send>,
 	types<odp_off, odp_dc, odp_rdma_write>,
@@ -580,7 +578,6 @@ typedef testing::Types<
 	types<odp_off, odp_rc, odp_send>,
 	types<odp_off, odp_rc, odp_rdma_read>,
 	types<odp_off, odp_rc, odp_rdma_write>
-
 > odp_env_list;
 
 #ifdef __x86_64__
@@ -631,15 +628,28 @@ TYPED_TEST(odp, t4_6M) {
 	EXEC(test(0,0,0x600000,0x10));
 }
 
+template <typename T>
+struct odp_long : public odp<T> { odp_long(): odp<T>() {} };
 
-TYPED_TEST(odp, t5_3G) {
+typedef testing::Types<
+	types<odp_explicit, odp_rc, odp_send>,
+	types<odp_implicit, odp_rc, odp_send>,
+#if HAVE_DECL_IBV_ACCESS_HUGETLB
+	types<odp_hugetlb, odp_rc, odp_send>,
+#endif
+	types<odp_off, odp_rc, odp_send>
+> odp_env_list_long;
+
+TYPED_TEST_CASE(odp_long, odp_env_list_long);
+
+TYPED_TEST(odp_long, t5_3G) {
 	ODP_CHK_SUT(0xe0000000);
 	EXEC(test(0, 0,
 		  0xe0000000,
 		  0x10));
 }
 
-TYPED_TEST(odp, t6_16Gplus) {
+TYPED_TEST(odp_long, t6_16Gplus) {
 	ODP_CHK_SUT(0x400000100);
 	EXEC(test(0, 0,
 		  0x400000100,
