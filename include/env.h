@@ -43,6 +43,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <dirent.h>
 #include <linux/limits.h>
 
 #include <infiniband/verbs.h>
@@ -358,8 +359,14 @@ struct ibvt_ctx : public ibvt_obj {
 	uint8_t port_num;
 	uint16_t lid;
 	char *pdev_name;
+	char *vdev_name;
 
-	void init_debugfs() {
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+
+#define DEV_FS "/sys/class/infiniband_verbs"
+#define DEBUGFS "/sys/kernel/debug/mlx5"
+
+	void init_sysfs() {
 		char path[PATH_MAX];
 		char pdev[PATH_MAX], *p = pdev, *tok;
 		struct stat st;
@@ -369,41 +376,89 @@ struct ibvt_ctx : public ibvt_obj {
 		while ((tok = strsep(&p, "/"))) {
 			if (tok[0] == '.')
 				continue;
-			sprintf(path, "/sys/kernel/debug/mlx5/%s", tok);
+			sprintf(path, DEBUGFS "/%s", tok);
 			if (stat(path, &st) == 0) {
 				pdev_name = strdup(tok);
-				return;
+				break;
 			}
 		}
+
+		DIR *verbs = opendir(DEV_FS);
+		struct dirent *d;
+		char buff[PATH_MAX];
+		int fd, len;
+
+		while ((d = readdir(verbs))) {
+			sprintf(path, DEV_FS "/%s/ibdev",
+				d->d_name);
+			fd = open(path, O_RDONLY);
+			if (fd < 0)
+				continue;
+			len = read(fd, buff, sizeof(buff));
+			close(fd);
+			buff[len-1] = 0;
+			if (!strcmp(buff, ibv_get_device_name(dev))) {
+				vdev_name = strdup(d->d_name);
+				break;
+			}
+		}
+		closedir(verbs);
 	}
 
-	void check_debugfs(const char* var, int val) {
+	int read_sysfs(const char* dir, char* dev_name, const char* var) {
 		char path[PATH_MAX];
 		char buff[PATH_MAX];
 		int fd;
 
-		if (!pdev_name)
-			return;
-
-		sprintf(path, "/sys/kernel/debug/mlx5/%s/%s", pdev_name, var);
+		sprintf(path, "%s/%s/%s", dir, dev_name, var);
 		fd = open(path, O_RDONLY);
 
 		if (fd < 0)
-			return;
+			return -1;
 		read(fd, buff, sizeof(buff));
 		close(fd);
-
-		VERBS_TRACE("%3d.%p: debugfs\t%s %s = %s\n", __LINE__,
-			    this, env.lvl_str, var, buff);
-		ASSERT_EQ(val, atoi(buff)) << var;
+		return atoi(buff);
 	}
+
+	void check_debugfs(const char* var, int val) {
+		if (!pdev_name)
+			return;
+		int val_fs = read_sysfs(DEBUGFS, pdev_name, var);
+		VERBS_INFO("%3d.%p: debugfs\t%s %s = %d\n", __LINE__,
+			    this, env.lvl_str, var, val_fs);
+		ASSERT_GE(val_fs, val) << var;
+	}
+
+	void read_dev_fs(const char* var, int* val) {
+		if (!vdev_name)
+			return;
+		*val = read_sysfs(DEV_FS, vdev_name, var);
+		VERBS_INFO("%3d.%p: dev fs\t%s %s = %d\n", __LINE__,
+			    this, env.lvl_str, var, *val);
+	}
+
+	void check_dev_fs(const char* var, int val) {
+		if (!vdev_name)
+			return;
+		int val_fs = read_sysfs(DEV_FS, vdev_name, var);
+		VERBS_INFO("%3d.%p: dev fs\t%s %s = %d\n", __LINE__,
+			    this, env.lvl_str, var, val_fs);
+		ASSERT_GE(val_fs, val) << var;
+	}
+#else
+	void init_sysfs() {}
+	void check_debugfs(const char* var, int val) {}
+	void read_dev_fs(const char* var, int* val) {}
+	void check_dev_fs(const char* var, int val) {}
+#endif
 
 	ibvt_ctx(ibvt_env &e, ibvt_ctx *o = NULL) :
 		ibvt_obj(e),
 		ctx(NULL),
 		other(o),
 		port_num(0),
-		pdev_name(NULL) {}
+		pdev_name(NULL),
+		vdev_name(NULL)	{}
 
 	virtual bool check_port(struct ibv_device *dev, struct ibv_port_attr &port_attr ) {
 		if (getenv("IBV_DEV") && strcmp(ibv_get_device_name(dev), getenv("IBV_DEV")))
@@ -520,6 +575,7 @@ struct ibvt_cq : public ibvt_obj {
 					wc[i].status, wc[i]._wc_opcode,
 					wc[i].byte_len, wc[i].qp_num,
 					wc[i].slid, wc[i].wc_flags);
+			//if (wc[i].status) getchar();
 			ASSERT_FALSE(wc[i].status) << ibv_wc_status_str(wc[i].status);
 		}
 	}
@@ -635,8 +691,10 @@ struct ibvt_mr : public ibvt_obj {
 		memset(buff, 0, size);
 	}
 
-	virtual void dump(const char *pfx = "") {
-		hexdump(pfx, buff, size);
+	virtual void dump(size_t offset = 0,
+			  size_t length = 0,
+			  const char *pfx = "") {
+		hexdump(pfx, buff + offset, length ?: size);
 	}
 
 	virtual struct ibv_sge sge(intptr_t start, size_t length) {
@@ -731,10 +789,9 @@ struct ibvt_srq : public ibvt_obj {
 		if (srq)
 			return;
 
-		EXEC(pd.init());
-		EXEC(cq.init());
+		INIT(pd.init());
+		INIT(cq.init());
 		init_attr(attr);
-
 		SET(srq, ibv_create_srq_ex(pd.ctx.ctx, &attr));
 	}
 

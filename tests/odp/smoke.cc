@@ -56,6 +56,18 @@
 #define ibv_prefetch_mr ibv_exp_prefetch_mr
 #endif
 
+#ifdef __x86_64__
+
+#define PAGE 0x1000
+#define UP (1ULL<<47)
+
+#elif (__ppc64__|__PPC64__)
+
+#define PAGE 0x10000
+#define UP (1ULL<<46)
+
+#endif
+
 struct ibvt_mr_implicit : public ibvt_mr {
 	ibvt_mr_implicit(ibvt_env &e, ibvt_pd &p, long a) :
 		ibvt_mr(e, p, 0, 0, a) {}
@@ -168,6 +180,30 @@ struct odp_mem : public ibvt_obj {
 		if (pdst)
 			delete pdst;
 	}
+
+	int num_page_fault_pages;
+	int num_invalidation_pages;
+
+	virtual void check_stats_before() {
+		EXEC(ssrc.ctx.check_debugfs("odp_stats/num_odp_mrs", 2));
+		EXEC(ssrc.ctx.check_debugfs("odp_stats/num_odp_mr_pages", 0));
+		EXEC(ssrc.ctx.read_dev_fs("num_page_fault_pages",
+					  &num_page_fault_pages));
+		EXEC(ssrc.ctx.read_dev_fs("num_invalidation_pages",
+					  &num_invalidation_pages));
+	}
+
+	virtual void check_stats_after(size_t len) {
+		int pages = (len + PAGE - 1) / PAGE * 2;
+		int i;
+		EXEC(ssrc.ctx.check_debugfs("odp_stats/num_odp_mrs", 2));
+		EXEC(ssrc.ctx.check_dev_fs("num_page_fault_pages",
+					   num_page_fault_pages + pages));
+		EXEC(ssrc.ctx.read_dev_fs("num_invalidation_pages",
+					  &i));
+		pages -= i - num_invalidation_pages;
+		EXEC(ssrc.ctx.check_debugfs("odp_stats/num_odp_mr_pages", pages));
+	}
 };
 
 struct odp_trans : public ibvt_obj {
@@ -193,19 +229,14 @@ struct odp_base : public testing::Test, public ibvt_env {
 		src_access_flags(s),
 		dst_access_flags(d) {}
 
-	void check_stats(int mrs, int pages) {
-		EXEC(ctx.check_debugfs("odp_stats/num_odp_mrs", mrs));
-		EXEC(ctx.check_debugfs("odp_stats/num_odp_mr_pages", pages));
-	}
-
 	virtual odp_mem &mem() = 0;
 	virtual odp_trans &trans() = 0;
 	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) = 0;
 
 	virtual void init() {
 		INIT(ctx.init());
-		INIT(ctx.init_debugfs());
-		INIT(check_stats(0, 0));
+		INIT(ctx.init_sysfs());
+		EXEC(ctx.check_debugfs("odp_stats/num_odp_mrs", 0));
 	}
 
 	virtual void SetUp() {
@@ -334,6 +365,8 @@ struct odp_off : public odp_mem {
 		SET(pdst, new ibvt_mr(sdst.env, sdst.pd, len, dst_addr, sdst.access_flags));
 	}
 
+	virtual void check_stats_before() { }
+	virtual void check_stats_after(size_t len) { }
 };
 
 struct odp_explicit : public odp_mem {
@@ -353,6 +386,9 @@ struct odp_prefetch : public odp_mem {
 		SET(psrc, new ibvt_mr_pf(ssrc.env, ssrc.pd, len, src_addr, ssrc.access_flags | IBV_ACCESS_ON_DEMAND));
 		SET(pdst, new ibvt_mr_pf(sdst.env, sdst.pd, len, dst_addr, sdst.access_flags | IBV_ACCESS_ON_DEMAND));
 	}
+
+	virtual void check_stats_before() { }
+	virtual void check_stats_after(size_t len) { }
 };
 #endif
 
@@ -383,7 +419,8 @@ struct odp_implicit : public odp_mem {
 		simr.init();
 		dimr.init();
 	}
-};
+
+	};
 
 #ifdef HAVE_INFINIBAND_VERBS_EXP_H
 struct ibvt_qp_rc_umr : public ibvt_qp_rc {
@@ -466,15 +503,14 @@ struct odp_send : public odp_base {
 		EXEC(mem().src().fill());
 		EXEC(mem().dst().init());
 
-		EXEC(check_stats(2, 0));
+		EXEC(mem().check_stats_before());
 		for (int i = 0; i < count; i++) {
 			EXEC(trans().recv(mem().dst().sge(len/count*i, len/count)));
 			EXEC(trans().send(mem().src().sge(len/count*i, len/count)));
 			EXEC(trans().poll_src());
 			EXEC(trans().poll_dst());
 		}
-		EXEC(check_stats(2, len / 0x1000 * 2));
-
+		EXEC(mem().check_stats_after(len));
 		EXEC(mem().dst().check());
 		EXEC(mem().unreg());
 	}
@@ -489,14 +525,14 @@ struct odp_rdma_read : public odp_base {
 		EXEC(mem().src().fill());
 		EXEC(mem().dst().init());
 
-		EXEC(check_stats(2, 0));
+		EXEC(mem().check_stats_before());
 		for (int i = 0; i < count; i++) {
 			EXEC(trans().rdma_dst(mem().dst().sge(len/count*i, len/count),
 					 mem().src().sge(len/count*i, len/count),
 					 IBV_WR_RDMA_READ));
 			EXEC(trans().poll_dst());
 		}
-		EXEC(check_stats(2, len / 0x1000 * 2));
+		EXEC(mem().check_stats_after(len));
 		EXEC(mem().dst().check());
 		EXEC(mem().unreg());
 	}
@@ -511,14 +547,14 @@ struct odp_rdma_write : public odp_base {
 		EXEC(mem().src().fill());
 		EXEC(mem().dst().init());
 
-		EXEC(check_stats(2, 0));
+		EXEC(mem().check_stats_before());
 		for (int i = 0; i < count; i++) {
 			EXEC(trans().rdma_src(mem().src().sge(len/count*i, len/count),
 						mem().dst().sge(len/count*i, len/count),
 						IBV_WR_RDMA_WRITE));
 			EXEC(trans().poll_src());
 		}
-		EXEC(check_stats(2, len / 0x1000 * 2));
+		EXEC(mem().check_stats_after(len));
 		EXEC(mem().dst().check());
 		EXEC(mem().unreg());
 	}
@@ -579,18 +615,6 @@ typedef testing::Types<
 	types<odp_off, odp_rc, odp_rdma_read>,
 	types<odp_off, odp_rc, odp_rdma_write>
 > odp_env_list;
-
-#ifdef __x86_64__
-
-#define PAGE 0x1000
-#define UP (1ULL<<47)
-
-#elif (__ppc64__|__PPC64__)
-
-#define PAGE 0x10000
-#define UP (1ULL<<46)
-
-#endif
 
 TYPED_TEST_CASE(odp, odp_env_list);
 
