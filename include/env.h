@@ -546,6 +546,23 @@ struct ibvt_pd : public ibvt_obj {
 	}
 };
 
+struct ibvt_cq;
+
+struct ibvt_wc {
+	struct ibv_wc wc;
+	ibvt_cq &cq;
+
+	struct ibv_wc operator()() {
+		return wc;
+	}
+
+	ibvt_wc(ibvt_cq &c) : cq(c) {
+		memset(&wc, 0, sizeof(wc));
+	}
+
+	virtual ~ibvt_wc() ;
+};
+
 struct ibvt_cq : public ibvt_obj {
 	struct ibv_cq *cq;
 	ibvt_ctx &ctx;
@@ -573,30 +590,59 @@ struct ibvt_cq : public ibvt_obj {
 
 	virtual void arm() {}
 
-	virtual void poll(int n) {
-		struct ibv_wc wc[n];
-		long result = 0, retries = POLL_RETRIES;
+	virtual void poll() {
+		ibvt_wc wc(*this);
 
 		VERBS_TRACE("%d.%p polling...\n", __LINE__, this);
+		EXEC(do_poll(wc));
 
+		VERBS_TRACE("poll status %s(%d) opcode %d len %d qp %x lid %x flags %lx\n",
+				ibv_wc_status_str(wc().status),
+				wc().status, wc()._wc_opcode,
+				wc().byte_len, wc().qp_num,
+				wc().slid, (uint64_t)wc().wc_flags);
+		//if (wc().status) getchar();
+		ASSERT_FALSE(wc().status) << ibv_wc_status_str(wc().status);
+	}
+
+#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+	virtual void do_poll(struct ibvt_wc &wc) {
+		long result = 0, retries = POLL_RETRIES;
 		errno = 0;
 		while (!result && --retries) {
-			result = ibv_poll_cq(cq, n, wc);
+			result = ibv_poll_cq(cq, 1, &wc.wc);
 			ASSERT_GE(result,0);
 		}
 		ASSERT_GT(retries,0) << "errno: " << errno;
-
-		for (int i=0; i<result; i++) {
-			VERBS_TRACE("poll status %s(%d) opcode %d len %d qp %x lid %x flags %lx\n",
-					ibv_wc_status_str(wc[i].status),
-					wc[i].status, wc[i]._wc_opcode,
-					wc[i].byte_len, wc[i].qp_num,
-					wc[i].slid, wc[i].wc_flags);
-			//if (wc[i].status) getchar();
-			ASSERT_FALSE(wc[i].status) << ibv_wc_status_str(wc[i].status);
-		}
+	}
+#else
+	struct ibv_cq_ex *cq2() {
+		return (struct ibv_cq_ex *)this->cq;
 	}
 
+	virtual void do_poll(struct ibvt_wc &wc) {
+		long result = 0, retries = POLL_RETRIES;
+		struct ibv_poll_cq_attr attr = {};
+
+		errno = 0;
+		while (--retries) {
+			result = ibv_start_poll(cq2(), &attr);
+			if (!result)
+				break;
+			ASSERT_EQ(ENOENT, result);
+		}
+		ASSERT_GT(retries,0) << "errno: " << errno;
+
+		wc.wc.status = cq2()->status;
+		wc.wc.wr_id = cq2()->wr_id;
+		wc.wc.opcode = ibv_wc_read_opcode(cq2());
+		wc.wc.wc_flags = ibv_wc_read_wc_flags(cq2());
+		wc.wc.byte_len = ibv_wc_read_byte_len(cq2());
+		wc.wc.slid = ibv_wc_read_slid(cq2());
+		wc.wc.qp_num = ibv_wc_read_qp_num(cq2());
+
+	}
+#endif
 	virtual void poll_arrive(int n) {
 		struct ibv_wc wc[n];
 		long result = 0, retries = POLL_RETRIES;
@@ -612,12 +658,22 @@ struct ibvt_cq : public ibvt_obj {
 	}
 };
 
+inline ibvt_wc::~ibvt_wc() {
+#ifndef HAVE_INFINIBAND_VERBS_EXP_H
+	ibv_end_poll(cq.cq2());
+#endif
+}
+
 struct ibvt_cq_event : public ibvt_cq {
 	struct ibv_comp_channel *channel;
 	int num_cq_events;
+	int solicited_only;
 
 	ibvt_cq_event(ibvt_env &e, ibvt_ctx &c) :
-		ibvt_cq(e, c), channel(NULL), num_cq_events(0) {}
+		ibvt_cq(e, c),
+		channel(NULL),
+		num_cq_events(0),
+		solicited_only(0) {}
 
 	virtual void init() {
 		struct ibv_create_cq_attr_ex attr;
@@ -631,7 +687,7 @@ struct ibvt_cq_event : public ibvt_cq {
 	}
 
 	virtual ~ibvt_cq_event() {
-		if (cq)
+		if (num_cq_events)
 			ibv_ack_cq_events(cq, num_cq_events);
 		FREE(ibv_destroy_cq, cq);
 		FREE(ibv_destroy_comp_channel, channel);
@@ -639,18 +695,18 @@ struct ibvt_cq_event : public ibvt_cq {
 
 	virtual void arm() {
 		num_cq_events = 0;
-		DO(ibv_req_notify_cq(cq, 0));
+		DO(ibv_req_notify_cq(cq, solicited_only));
 	}
 
-	virtual void poll(int n) {
+	virtual void do_poll(struct ibvt_wc &wc) {
 		struct ibv_cq *ev_cq;
 		void *ev_ctx;
 
 		DO(ibv_get_cq_event(channel, &ev_cq, &ev_ctx));
 		ASSERT_EQ(ev_cq, cq);
 		num_cq_events++;
-		DO(ibv_req_notify_cq(cq, 0));
-		EXEC(ibvt_cq::poll(n));
+		DO(ibv_req_notify_cq(cq, solicited_only));
+		EXEC(ibvt_cq::do_poll(wc));
 	}
 };
 

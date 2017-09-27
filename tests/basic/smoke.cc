@@ -114,8 +114,8 @@ TYPED_TEST(base_test, t0) {
 	CHK_SUT(basic);
 	EXEC(recv(0, SZ));
 	EXEC(send(0, SZ));
-	EXEC(cq.poll(1));
-	EXEC(cq.poll(1));
+	EXEC(cq.poll());
+	EXEC(cq.poll());
 	EXEC(dst_mr.check());
 }
 
@@ -124,11 +124,11 @@ TYPED_TEST(base_test, t1) {
 	EXEC(recv(0, SZ/2));
 	EXEC(recv(SZ/2, SZ/2));
 	EXEC(send(0, SZ/2));
-	EXEC(cq.poll(1));
-	EXEC(cq.poll(1));
+	EXEC(cq.poll());
+	EXEC(cq.poll());
 	EXEC(send(SZ/2, SZ/2));
-	EXEC(cq.poll(1));
-	EXEC(cq.poll(1));
+	EXEC(cq.poll());
+	EXEC(cq.poll());
 	EXEC(dst_mr.check());
 }
 
@@ -145,14 +145,14 @@ TYPED_TEST_CASE(rdma_test, rdma_test_env_list);
 TYPED_TEST(rdma_test, t0) {
 	CHK_SUT(basic);
 	EXEC(send_qp.rdma(this->src_mr.sge(), this->dst_mr.sge(), IBV_WR_RDMA_WRITE));
-	EXEC(cq.poll(1));
+	EXEC(cq.poll());
 	EXEC(dst_mr.check());
 }
 
 TYPED_TEST(rdma_test, t1) {
 	CHK_SUT(basic);
 	EXEC(recv_qp.rdma(this->dst_mr.sge(), this->src_mr.sge(), IBV_WR_RDMA_READ));
-	EXEC(cq.poll(1));
+	EXEC(cq.poll());
 	EXEC(dst_mr.check());
 }
 
@@ -230,8 +230,8 @@ TYPED_TEST(srq_test, t0) {
 	CHK_SUT(basic);
 	EXEC(recv(0, SZ));
 	EXEC(send(0, SZ));
-	EXEC(cq.poll(1));
-	EXEC(cq.poll(1));
+	EXEC(cq.poll());
+	EXEC(cq.poll());
 	EXEC(dst_mr.check());
 }
 

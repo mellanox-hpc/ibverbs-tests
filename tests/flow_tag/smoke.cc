@@ -466,8 +466,8 @@ TEST_F(flow_tag_test, t0) {
         EXEC(qp_send.send_raw_packet(this->mr_send.buff, 1));
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 
-	EXEC(cq_send.poll(1));
-	EXEC(cq_recv.poll(1));
+	EXEC(cq_send.poll());
+	EXEC(cq_recv.poll());
 	EXEC(qp_recv.vxlan_destroy_rules());
 
 }
@@ -484,7 +484,7 @@ TEST_F(flow_tag_test, t1) {
         EXEC(qp_send.send_raw_packet(this->mr_send.buff, 0));
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 
-	EXEC(cq_send.poll(1));
+	EXEC(cq_send.poll());
 	EXEC(cq_recv.poll_arrive(1));
 	EXEC(qp_recv.vxlan_destroy_rules());
 

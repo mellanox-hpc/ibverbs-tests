@@ -266,8 +266,8 @@ struct odp_qp : public odp_trans {
 			      enum ibv_wr_opcode opcode) {
 		dst.qp.rdma(src_sge, dst_sge, opcode);
 	}
-	virtual void poll_src() { src.cq.poll(1); }
-	virtual void poll_dst() { dst.cq.poll(1); }
+	virtual void poll_src() { src.cq.poll(); }
+	virtual void poll_dst() { dst.cq.poll(); }
 };
 
 typedef odp_qp<ibvt_qp_rc> odp_rc;
@@ -338,8 +338,8 @@ struct odp_dc : public odp_trans {
 			      enum ibv_wr_opcode opcode) {
 		FAIL();
 	}
-	virtual void poll_src() { src.cq.poll(1); }
-	virtual void poll_dst() { dst.cq.poll(1); }
+	virtual void poll_src() { src.cq.poll(); }
+	virtual void poll_dst() { dst.cq.poll(); }
 
 };
 #endif
