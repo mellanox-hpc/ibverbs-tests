@@ -332,12 +332,12 @@ struct ibvt_peer_op : public ibvt_obj {
 		ctx.ctrl.peek.owner = ~ctx.peek_op_data;
 
 		DO(ibv_post_send(qp_peer.qp, ctx.wr1, &bad_wr));
-		EXEC(cq_peer.poll(2));
+		EXEC(cq_peer.poll());
 		VERBS_INFO("Op%d executed commit descriptors\n", id);
 
 		while(--retries) {
 			DO(ibv_post_send(qp_peer.qp, ctx.wr2, &bad_wr));
-			EXEC(cq_peer.poll(1));
+			EXEC(cq_peer.poll());
 			if (ctx.peek_op_type == IBV_PEER_OP_POLL_AND_DWORD) {
 				if (ctx.ctrl.peek.owner & ctx.peek_op_data)
 					break;
@@ -357,8 +357,8 @@ struct ibvt_peer_op : public ibvt_obj {
 	void peer_poll() {
 		struct ibv_send_wr *bad_wr = NULL;
 		DO(ibv_post_send(qp_peer.qp, ctx.wr2+1, &bad_wr));
-		EXEC(cq_peer.poll(1));
-		EXEC(cq.poll(1));
+		EXEC(cq_peer.poll());
+		EXEC(cq.poll());
 		VERBS_INFO("Op%d completed polling\n", id);
 	}
 
@@ -366,7 +366,7 @@ struct ibvt_peer_op : public ibvt_obj {
 		struct ibv_peer_abort_peek abort_ops;
 		abort_ops.peek_id = ctx.peek_id;
 		ibv_peer_abort_peek_cq(cq.cq, &abort_ops);
-		EXEC(cq.poll(1));
+		EXEC(cq.poll());
 		VERBS_INFO("Op%d aborted polling\n", id);
 	}
 

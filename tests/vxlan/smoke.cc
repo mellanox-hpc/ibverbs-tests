@@ -583,8 +583,8 @@ TEST_F(vxlan_test, t0) {
 #endif
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 
-	EXEC(cq_send.poll(1));
-	EXEC(cq_recv.poll(1));
+	EXEC(cq_send.poll());
+	EXEC(cq_recv.poll());
 	EXEC(qp_recv.vxlan_destroy_rules());
 
 }
@@ -605,7 +605,7 @@ TEST_F(vxlan_test, t1) {
 #endif
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 
-	EXEC(cq_send.poll(1));
+	EXEC(cq_send.poll());
 	EXEC(cq_recv.poll_arrive(1));
 	EXEC(qp_recv.vxlan_destroy_rules());
 
@@ -627,14 +627,14 @@ TEST_F(vxlan_test, t2) {
 #endif
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
 
-	EXEC(cq_send.poll(1));
-	EXEC(cq_recv.poll(1));
+	EXEC(cq_send.poll());
+	EXEC(cq_recv.poll());
 #ifdef HAVE_VXLAN
 	EXEC(qp_recv.vxlan_destroy_rules());
 	EXEC(qp_send.send_raw_packet(this->mr_send.buff, 0));
 #endif
 	EXEC(qp_send.post_send(this->mr_send.sge(0, len),IBV_WR_SEND));
-	EXEC(cq_send.poll(1));
+	EXEC(cq_send.poll());
 	EXEC(cq_recv.poll_arrive(1));
 
 }

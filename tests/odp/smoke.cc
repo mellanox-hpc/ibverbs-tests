@@ -105,12 +105,8 @@ struct ibvt_sub_mr : public ibvt_mr {
 		ibvt_mr(i.env, i.pd, size, a), master(i) {}
 
 	virtual void init() {
-		int flags = MAP_PRIVATE|MAP_ANON;
-		if (addr)
-			flags |= MAP_FIXED;
+		EXEC(init_mmap());
 		mr = master.mr;
-		buff = (char*)mmap((void*)addr, size, PROT_READ|PROT_WRITE, flags, -1, 0);
-		ASSERT_NE(buff, MAP_FAILED);
 	}
 
 	virtual ~ibvt_sub_mr() {
@@ -168,6 +164,30 @@ struct odp_mem : public ibvt_obj {
 		if (pdst)
 			delete pdst;
 	}
+
+	int num_page_fault_pages;
+	int num_invalidation_pages;
+
+	virtual void check_stats_before() {
+		EXEC(ssrc.ctx.check_debugfs("odp_stats/num_odp_mrs", 2));
+		EXEC(ssrc.ctx.check_debugfs("odp_stats/num_odp_mr_pages", 0));
+		EXEC(ssrc.ctx.read_dev_fs("num_page_fault_pages",
+					  &num_page_fault_pages));
+		EXEC(ssrc.ctx.read_dev_fs("num_invalidation_pages",
+					  &num_invalidation_pages));
+	}
+
+	virtual void check_stats_after(size_t len) {
+		int pages = (len + PAGE - 1) / PAGE * 2;
+		int i;
+		EXEC(ssrc.ctx.check_debugfs("odp_stats/num_odp_mrs", 2));
+		EXEC(ssrc.ctx.check_dev_fs("num_page_fault_pages",
+					   num_page_fault_pages + pages));
+		EXEC(ssrc.ctx.read_dev_fs("num_invalidation_pages",
+					  &i));
+		pages -= i - num_invalidation_pages;
+		EXEC(ssrc.ctx.check_debugfs("odp_stats/num_odp_mr_pages", pages));
+	}
 };
 
 struct odp_trans : public ibvt_obj {
@@ -193,19 +213,17 @@ struct odp_base : public testing::Test, public ibvt_env {
 		src_access_flags(s),
 		dst_access_flags(d) {}
 
-	void check_stats(int mrs, int pages) {
-		EXEC(ctx.check_debugfs("odp_stats/num_odp_mrs", mrs));
-		EXEC(ctx.check_debugfs("odp_stats/num_odp_mr_pages", pages));
-	}
-
 	virtual odp_mem &mem() = 0;
 	virtual odp_trans &trans() = 0;
 	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) = 0;
+	virtual void test_page(unsigned long addr) {
+		EXEC(test(addr, addr + PAGE, PAGE));
+	}
 
 	virtual void init() {
 		INIT(ctx.init());
-		INIT(ctx.init_debugfs());
-		INIT(check_stats(0, 0));
+		INIT(ctx.init_sysfs());
+		EXEC(ctx.check_debugfs("odp_stats/num_odp_mrs", 0));
 	}
 
 	virtual void SetUp() {
@@ -248,8 +266,8 @@ struct odp_qp : public odp_trans {
 			      enum ibv_wr_opcode opcode) {
 		dst.qp.rdma(src_sge, dst_sge, opcode);
 	}
-	virtual void poll_src() { src.cq.poll(1); }
-	virtual void poll_dst() { dst.cq.poll(1); }
+	virtual void poll_src() { src.cq.poll(); }
+	virtual void poll_dst() { dst.cq.poll(); }
 };
 
 typedef odp_qp<ibvt_qp_rc> odp_rc;
@@ -320,8 +338,8 @@ struct odp_dc : public odp_trans {
 			      enum ibv_wr_opcode opcode) {
 		FAIL();
 	}
-	virtual void poll_src() { src.cq.poll(1); }
-	virtual void poll_dst() { dst.cq.poll(1); }
+	virtual void poll_src() { src.cq.poll(); }
+	virtual void poll_dst() { dst.cq.poll(); }
 
 };
 #endif
@@ -334,6 +352,8 @@ struct odp_off : public odp_mem {
 		SET(pdst, new ibvt_mr(sdst.env, sdst.pd, len, dst_addr, sdst.access_flags));
 	}
 
+	virtual void check_stats_before() { }
+	virtual void check_stats_after(size_t len) { }
 };
 
 struct odp_explicit : public odp_mem {
@@ -353,6 +373,9 @@ struct odp_prefetch : public odp_mem {
 		SET(psrc, new ibvt_mr_pf(ssrc.env, ssrc.pd, len, src_addr, ssrc.access_flags | IBV_ACCESS_ON_DEMAND));
 		SET(pdst, new ibvt_mr_pf(sdst.env, sdst.pd, len, dst_addr, sdst.access_flags | IBV_ACCESS_ON_DEMAND));
 	}
+
+	virtual void check_stats_before() { }
+	virtual void check_stats_after(size_t len) { }
 };
 #endif
 
@@ -409,16 +432,14 @@ struct ibvt_mw : public ibvt_mr {
 		ibvt_mr(i.env, i.pd, size, a), master(i), qp(q) {}
 
 	virtual void init() {
-		int flags = MAP_PRIVATE|MAP_ANON;
-		if (addr)
-			flags |= MAP_FIXED;
-		buff = (char*)mmap((void*)addr, size, PROT_READ|PROT_WRITE, flags, -1, 0);
-		ASSERT_NE(buff, MAP_FAILED);
+		if (mr)
+			return;
+		EXEC(init_mmap());
 
 		struct ibv_exp_create_mr_in mr_in = {};
 		mr_in.pd = pd.pd;
 		mr_in.attr.create_flags = IBV_EXP_MR_INDIRECT_KLMS;
-		mr_in.attr.max_klm_list_size = 3;
+		mr_in.attr.max_klm_list_size = 4;
 		mr_in.attr.exp_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
 		mr_in.comp_mask = 0;
 		SET(mr, ibv_exp_create_mr(&mr_in));
@@ -466,15 +487,14 @@ struct odp_send : public odp_base {
 		EXEC(mem().src().fill());
 		EXEC(mem().dst().init());
 
-		EXEC(check_stats(2, 0));
+		EXEC(mem().check_stats_before());
 		for (int i = 0; i < count; i++) {
 			EXEC(trans().recv(mem().dst().sge(len/count*i, len/count)));
 			EXEC(trans().send(mem().src().sge(len/count*i, len/count)));
 			EXEC(trans().poll_src());
 			EXEC(trans().poll_dst());
 		}
-		EXEC(check_stats(2, len / 0x1000 * 2));
-
+		EXEC(mem().check_stats_after(len));
 		EXEC(mem().dst().check());
 		EXEC(mem().unreg());
 	}
@@ -486,17 +506,17 @@ struct odp_rdma_read : public odp_base {
 
 	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) {
 		EXEC(mem().reg(src, dst, len));
-		EXEC(mem().src().fill());
 		EXEC(mem().dst().init());
+		EXEC(mem().src().fill());
 
-		EXEC(check_stats(2, 0));
+		EXEC(mem().check_stats_before());
 		for (int i = 0; i < count; i++) {
 			EXEC(trans().rdma_dst(mem().dst().sge(len/count*i, len/count),
 					 mem().src().sge(len/count*i, len/count),
 					 IBV_WR_RDMA_READ));
 			EXEC(trans().poll_dst());
 		}
-		EXEC(check_stats(2, len / 0x1000 * 2));
+		EXEC(mem().check_stats_after(len));
 		EXEC(mem().dst().check());
 		EXEC(mem().unreg());
 	}
@@ -511,14 +531,14 @@ struct odp_rdma_write : public odp_base {
 		EXEC(mem().src().fill());
 		EXEC(mem().dst().init());
 
-		EXEC(check_stats(2, 0));
+		EXEC(mem().check_stats_before());
 		for (int i = 0; i < count; i++) {
 			EXEC(trans().rdma_src(mem().src().sge(len/count*i, len/count),
 						mem().dst().sge(len/count*i, len/count),
 						IBV_WR_RDMA_WRITE));
 			EXEC(trans().poll_src());
 		}
-		EXEC(check_stats(2, len / 0x1000 * 2));
+		EXEC(mem().check_stats_after(len));
 		EXEC(mem().dst().check());
 		EXEC(mem().unreg());
 	}
@@ -580,25 +600,13 @@ typedef testing::Types<
 	types<odp_off, odp_rc, odp_rdma_write>
 > odp_env_list;
 
-#ifdef __x86_64__
-
-#define PAGE 0x1000
-#define UP (1ULL<<47)
-
-#elif (__ppc64__|__PPC64__)
-
-#define PAGE 0x10000
-#define UP (1ULL<<46)
-
-#endif
-
 TYPED_TEST_CASE(odp, odp_env_list);
 
 TYPED_TEST(odp, t0_crossbound) {
 	ODP_CHK_SUT(PAGE);
 	EXEC(test((1ULL<<(32+1))-PAGE,
 		  (1ULL<<(32+2))-PAGE,
-		  0x2000));
+		  PAGE * 2));
 }
 
 TYPED_TEST(odp, t1_upper) {

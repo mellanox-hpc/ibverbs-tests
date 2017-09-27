@@ -177,9 +177,14 @@ struct ibvt_srq_tm : public ibvt_srq {
 	}
 
 	virtual void append(ibvt_mr &mr, int start, int length,
-			    uint64_t tag, int *idx)
+			    uint64_t tag, int *idx = NULL)
 	{
 		struct ibv_sge sge = mr.sge(start, length);
+		EXEC(append(&sge, tag, idx));
+	}
+
+	virtual void append(ibv_sge *sge, uint64_t tag, int *idx = NULL)
+	{
 		struct ibv_ops_wr wr;
 		struct ibv_ops_wr *bad_wr = NULL;
 
@@ -188,8 +193,12 @@ struct ibvt_srq_tm : public ibvt_srq {
 		wr.opcode = IBV_WR_TAG_ADD;
 
 		wr.tm.add.recv_wr_id = tag;
-		wr.tm.add.sg_list = &sge;
-		wr.tm.add.num_sge = 1;
+		if (sge) {
+			wr.tm.add.sg_list = sge;
+			wr.tm.add.num_sge = 1;
+		} else {
+			wr.tm.add.num_sge = 0;
+		}
 		wr.tm.add.tag = tag;
 		wr.tm.add.mask = 0xffffffffffffffff;
 		wr.tm.unexpected_cnt = tm.phase_cnt;
@@ -273,88 +282,38 @@ struct ibvt_qp_rndv : public ibvt_qp_rc {
 	}
 };
 
-#if HAVE_DECL_IBV_EXP_POST_SRQ_OPS
-
-struct ibvt_cq_tm : public ibvt_cq {
+template <typename Base>
+struct ibvt_cq_tm : public Base {
 	tag_matching_base &tm;
 
-	ibvt_cq_tm(tag_matching_base &e, ibvt_ctx &c) : ibvt_cq(e, c), tm(e) {}
+	ibvt_cq_tm(tag_matching_base &e, ibvt_ctx &c) : Base(e, c), tm(e) {}
 
 	virtual void poll(int n) {
-		struct ibv_wc wc = {};
-		long result = 0, retries = 32L * POLL_RETRIES;
+		struct ibvt_wc wc(*this);
 
-		VERBS_TRACE("%d.%p polling...\n", __LINE__, this);
-
-		while (!result && --retries) {
-			result = ibv_poll_cq(cq, 1, &wc);
-			ASSERT_GE(result,0);
-		}
-		ASSERT_GT(retries,0) << "errno: " << errno;
-
-		if (wc.exp_opcode == IBV_WC_TM_RECV && !(wc.exp_wc_flags & (IBV_WC_TM_MATCH | IBV_WC_TM_DATA_VALID)))
+		EXEC(do_poll(wc));
+#ifndef HAVE_INFINIBAND_VERBS_EXP_H
+		struct ibv_wc_tm_info tm_info = {};
+		ibv_wc_read_tm_info(this->cq2(), &tm_info);
+#endif
+		if (wc().exp_opcode == IBV_WC_TM_RECV && !(wc().wc_flags & (IBV_WC_TM_MATCH | IBV_WC_TM_DATA_VALID)))
 			tm.phase_cnt ++;
 
 		VERBS_INFO("poll status %s(%d) opcode %s(%d) len %d flags %lx lid %x wr_id %lx\n",
-				ibv_wc_status_str(wc.status), wc.status,
-				ibv_wc_opcode_str(wc.exp_opcode), wc.exp_opcode,
-				wc.byte_len, wc.exp_wc_flags, wc.slid,
-				wc.wr_id);
-		ASSERT_FALSE(wc.status) << ibv_wc_status_str(wc.status);
-		if (n && !wc.byte_len)
+				ibv_wc_status_str(wc().status), wc().status,
+				ibv_wc_opcode_str(wc().exp_opcode), wc().exp_opcode,
+				wc().byte_len, (uint64_t)wc().wc_flags, wc().slid,
+				wc().wr_id);
+		ASSERT_FALSE(wc().status) << ibv_wc_status_str(wc().status);
+		if (n && !wc().byte_len)
 			EXEC(poll(0));
 	}
 };
-
-#else
-
-struct ibvt_cq_tm: public ibvt_cq {
-	tag_matching_base &tm;
-
-	ibvt_cq_tm(tag_matching_base &e, ibvt_ctx &c) : ibvt_cq(e, c), tm(e) {}
-
-	virtual void poll(int n) {
-		struct ibv_cq_ex *cq2 = (struct ibv_cq_ex *)cq;
-		long result = 0, retries = POLL_RETRIES;
-		struct ibv_wc_tm_info tm_info = {};
-		struct ibv_poll_cq_attr attr = {};
-		struct ibv_wc wc = {};
-
-		VERBS_TRACE("%d.%p polling...\n", __LINE__, this);
-
-		while (--retries) {
-			result = ibv_start_poll(cq2, &attr);
-			if (!result)
-				break;
-			ASSERT_EQ(ENOENT, result);
-		}
-		ASSERT_GT(retries,0) << "errno: " << errno;
-
-		wc.opcode = ibv_wc_read_opcode(cq2);
-		wc.wc_flags = ibv_wc_read_wc_flags(cq2);
-		wc.byte_len = ibv_wc_read_byte_len(cq2);
-		ibv_wc_read_tm_info(cq2, &tm_info);
-		ibv_end_poll(cq2);
-
-		if (wc.opcode == IBV_WC_TM_RECV && !(wc.wc_flags & (IBV_WC_TM_MATCH | IBV_WC_TM_DATA_VALID)))
-			tm.phase_cnt ++;
-
-		VERBS_INFO("poll status %s(%d) opcode %s(%d) len %d flags %x wr_id %lx\n",
-				ibv_wc_status_str(cq2->status), cq2->status,
-				ibv_wc_opcode_str(wc.opcode), wc.opcode,
-				wc.byte_len, wc.wc_flags, cq2->wr_id);
-		ASSERT_FALSE(cq2->status) << ibv_wc_status_str(cq2->status);
-		if (n && !wc.byte_len)
-			EXEC(poll(0));
-	}
-};
-
-#endif
 
 struct tag_matching_rc : public tag_matching_base {
 	struct ibvt_ctx ctx;
 	struct ibvt_pd pd;
-	struct ibvt_cq_tm srq_cq;
+	struct ibvt_cq_tm<ibvt_cq> srq_cq;
 	struct ibvt_srq_tm srq;
 	struct ibvt_cq send_cq;
 	struct ibvt_qp_tm_rc send_qp;
@@ -388,13 +347,14 @@ struct tag_matching_rc : public tag_matching_base {
 		INIT(src_mr.fill());
 		INIT(dst_mr.init());
 		INIT(fin.init());
+		INIT(srq_cq.arm());
 	}
 
 	void rndv(int start, int length, uint64_t tag) {
 		EXEC(send_qp.recv(fin.sge()));
 		EXEC(send_qp.rndv(src_mr.sge(start, length), tag));
-		EXEC(send_cq.poll(1));
-		EXEC(send_cq.poll(1));
+		EXEC(send_cq.poll());
+		EXEC(send_cq.poll());
 		EXEC(srq_cq.poll(1));
 	}
 };
@@ -459,7 +419,7 @@ struct ibvt_qp_tm_dc : public ibvt_qp_dc {
 struct tag_matching_dc : public tag_matching_base {
 	struct ibvt_ctx ctx;
 	struct ibvt_pd pd;
-	struct ibvt_cq_tm srq_cq;
+	struct ibvt_cq_tm<ibvt_cq> srq_cq;
 	struct ibvt_srq_tm srq;
 	struct ibvt_cq send_cq;
 	struct ibvt_qp_tm_dc send_qp;
@@ -504,8 +464,8 @@ struct tag_matching_dc : public tag_matching_base {
 	void rndv(int start, int length, uint64_t tag) {
 		EXEC(rndv_srq.recv(fin.sge()));
 		EXEC(send_qp.rndv(src_mr.sge(start, length), tag));
-		EXEC(send_cq.poll(1));
-		EXEC(rndv_cq.poll(1));
+		EXEC(send_cq.poll());
+		EXEC(rndv_cq.poll());
 		EXEC(srq_cq.poll(1));
 	}
 };
@@ -537,7 +497,7 @@ struct tag_matching : public testing::Test, public T::Base {
 
 	void eager(int start, int length, uint64_t tag) {
 		EXEC(send_qp.send(this->src_mr.sge(start, length), tag, IBV_TMH_EAGER));
-		EXEC(send_cq.poll(1));
+		EXEC(send_cq.poll());
 		EXEC(srq_cq.poll(1));
 	}
 
@@ -596,7 +556,7 @@ TYPED_TEST(tag_matching, u0_short) {
 	EXEC(send_qp.send(this->src_mr.sge(0, 0x40), 1,
 			  IBV_SEND_INLINE));
 
-	EXEC(send_cq.poll(1));
+	EXEC(send_cq.poll());
 	EXEC(srq_cq.poll(1));
 	//EXEC(dst_mr.dump());
 }
@@ -606,7 +566,7 @@ TYPED_TEST(tag_matching, u2_rndv) {
 	EXEC(fix_uwq());
 	EXEC(append(0, this->SZ(), 1));
 	EXEC(send_qp.rndv(this->src_mr.sge(0, this->SZ()), 1));
-	EXEC(send_cq.poll(1));
+	EXEC(send_cq.poll());
 	EXEC(srq_cq.poll(1));
 	EXEC(dst_mr.check());
 }
@@ -615,7 +575,7 @@ TYPED_TEST(tag_matching, u3_rndv_unexp) {
 	CHK_SUT(tag-matching);
 	EXEC(fix_uwq());
 	EXEC(send_qp.rndv(this->src_mr.sge(0, this->SZ()), 1));
-	EXEC(send_cq.poll(1));
+	EXEC(send_cq.poll());
 	EXEC(srq_cq.poll(1));
 	//EXEC(dst_mr.dump());
 }
@@ -625,7 +585,7 @@ TYPED_TEST(tag_matching, u4_rndv_sw) {
 	EXEC(fix_uwq());
 	EXEC(append(0, this->SZ()/2, 1));
 	EXEC(send_qp.rndv(this->src_mr.sge(0, this->SZ()), 1));
-	EXEC(send_cq.poll(1));
+	EXEC(send_cq.poll());
 	EXEC(srq_cq.poll(1));
 	//EXEC(dst_mr.dump());
 }
@@ -725,7 +685,7 @@ TYPED_TEST(tag_matching, e6_unexp_inline) {
 	EXEC(srq.unexp(dst, 0, 0x20));
 	EXEC(fix_uwq());
 	EXEC(send_qp.send(src.sge(0x10, 0x10), 0x12345, IBV_TMH_EAGER));
-	EXEC(send_cq.poll(1));
+	EXEC(send_cq.poll());
 	EXEC(srq_cq.poll(1));
 }
 
@@ -734,7 +694,7 @@ TYPED_TEST(tag_matching, e7_no_tag) {
 	EXEC(recv(0, this->SZ()));
 	EXEC(fix_uwq());
 	EXEC(send_qp.send(this->src_mr.sge(0, this->SZ()), 0, IBV_TMH_NO_TAG));
-	EXEC(send_cq.poll(1));
+	EXEC(send_cq.poll());
 	EXEC(srq_cq.poll(1));
 	EXEC(dst_mr.check(0x10));
 }
@@ -764,8 +724,19 @@ TYPED_TEST(tag_matching, e9_imm) {
 			  IBV_TMH_EAGER,
 			  IBV_WR_SEND_WITH_IMM));
 
-	EXEC(send_cq.poll(1));
+	EXEC(send_cq.poll());
 	EXEC(srq_cq.poll(1));
+}
+
+TYPED_TEST(tag_matching, e10_nosge) {
+	CHK_SUT(tag-matching);
+	EXEC(fix_uwq());
+
+	EXEC(srq.append(NULL, 1));
+	EXEC(srq_cq.poll(0));
+	EXEC(send_qp.send(this->src_mr.sge(0, sizeof(struct ibv_tmh)), 1, IBV_TMH_EAGER));
+	EXEC(send_cq.poll());
+	EXEC(srq_cq.poll(0));
 }
 
 TYPED_TEST(tag_matching, r0_unexp) {
@@ -777,9 +748,8 @@ TYPED_TEST(tag_matching, r0_unexp) {
 	EXEC(srq.unexp(dst, 0, 0x80));
 	EXEC(fix_uwq());
 	EXEC(send_qp.rndv(this->src_mr.sge(0, this->SZ()), 1));
-	EXEC(send_cq.poll(1));
+	EXEC(send_cq.poll());
 	EXEC(srq_cq.poll(1));
-	//dst.dump();
 }
 
 TYPED_TEST(tag_matching, r1_match) {
@@ -833,18 +803,17 @@ TYPED_TEST(tag_matching, s0_append_remove) {
 	int i[10];
 	CHK_SUT(tag-matching);
 	EXEC(srq.append(this->dst_mr, 0, this->SZ(), 0x111, &i[0]));
+	EXEC(srq_cq.poll(0));
 	EXEC(srq.append(this->dst_mr, 0, this->SZ(), 0x222, &i[1]));
+	EXEC(srq_cq.poll(0));
 	EXEC(srq.append(this->dst_mr, 0, this->SZ(), 0x333, &i[2]));
+	EXEC(srq_cq.poll(0));
 
 	EXEC(srq.remove(i[2]));
+	EXEC(srq_cq.poll(0));
 	EXEC(srq.remove(i[1]));
+	EXEC(srq_cq.poll(0));
 	EXEC(srq.remove(i[0]));
-
-	EXEC(srq_cq.poll(0));
-	EXEC(srq_cq.poll(0));
-	EXEC(srq_cq.poll(0));
-	EXEC(srq_cq.poll(0));
-	EXEC(srq_cq.poll(0));
 	EXEC(srq_cq.poll(0));
 
 	EXEC(recv(0, this->SZ()));
