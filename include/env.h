@@ -191,6 +191,23 @@
 
 #endif
 
+#ifdef __x86_64__
+
+#define PAGE 0x1000
+#define UP (1ULL<<47)
+
+#elif (__ppc64__|__PPC64__)
+
+#define PAGE 0x10000
+#define UP (1ULL<<46)
+
+#endif
+
+#define PAGE_MASK (PAGE - 1)
+#define PAGE_ALIGN(x) ((x) & ~PAGE_MASK)
+#define PAGE_UPALIGN(x) (((x) + PAGE_MASK) & ~PAGE_MASK)
+
+
 #include "common.h"
 
 #define EXEC(x) do { \
@@ -645,6 +662,9 @@ struct ibvt_mr : public ibvt_obj {
 	long access_flags;
 	char *buff;
 
+	char *mem;
+	size_t mem_size;
+
 	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a = 0,
 		long af = IBV_ACCESS_LOCAL_WRITE |
 			  IBV_ACCESS_REMOTE_READ |
@@ -661,27 +681,42 @@ struct ibvt_mr : public ibvt_obj {
 		return MAP_PRIVATE|MAP_ANON;
 	}
 
-	virtual void init() {
+	virtual void init_mmap() {
 		int flags = mmap_flags();
+		if (addr) {
+			flags |= MAP_FIXED;
+			mem_size = PAGE_UPALIGN(size + (addr & PAGE_MASK));
+		} else {
+			mem_size = size;
+		}
+
+		mem = (char*)mmap((void*)PAGE_ALIGN(addr),
+				  mem_size, PROT_READ|PROT_WRITE,
+				  flags, -1, 0);
+		ASSERT_NE(mem, MAP_FAILED);
+
+		buff = addr ? (char*)addr : mem;
+	}
+
+	virtual void init() {
 		if (mr)
 			return;
 		EXEC(pd.init());
-		buff = (char*)mmap((void*)addr, size, PROT_READ|PROT_WRITE, flags, -1, 0);
-		ASSERT_NE(buff, MAP_FAILED);
-		memset(buff, 0, size);
+		EXEC(init_mmap());
 		SET(mr, ibv_reg_mr(pd.pd, buff, size, access_flags));
 		VERBS_TRACE("\t\t\t\tibv_reg_mr(pd, %p, %zx, %lx) = %x\n", buff, size, access_flags, mr->lkey);
 	}
 
 	virtual ~ibvt_mr() {
 		FREE(ibv_dereg_mr, mr);
-		munmap(buff, size);
+		munmap(mem, mem_size);
 	}
 
 	virtual void fill() {
 		EXEC(init());
 		for (size_t i = 0; i < size; i++)
 			buff[i] = i & 0xff;
+		VERBS_TRACE("\t\t\t\tfill(%p, %zx, %lx) = %x\n", buff, size, access_flags, mr->lkey);
 	}
 
 	virtual void check(size_t skip = 0, size_t shift = 0, int repeat = 1) {

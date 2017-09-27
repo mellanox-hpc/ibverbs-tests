@@ -56,18 +56,6 @@
 #define ibv_prefetch_mr ibv_exp_prefetch_mr
 #endif
 
-#ifdef __x86_64__
-
-#define PAGE 0x1000
-#define UP (1ULL<<47)
-
-#elif (__ppc64__|__PPC64__)
-
-#define PAGE 0x10000
-#define UP (1ULL<<46)
-
-#endif
-
 struct ibvt_mr_implicit : public ibvt_mr {
 	ibvt_mr_implicit(ibvt_env &e, ibvt_pd &p, long a) :
 		ibvt_mr(e, p, 0, 0, a) {}
@@ -117,12 +105,8 @@ struct ibvt_sub_mr : public ibvt_mr {
 		ibvt_mr(i.env, i.pd, size, a), master(i) {}
 
 	virtual void init() {
-		int flags = MAP_PRIVATE|MAP_ANON;
-		if (addr)
-			flags |= MAP_FIXED;
+		EXEC(init_mmap());
 		mr = master.mr;
-		buff = (char*)mmap((void*)addr, size, PROT_READ|PROT_WRITE, flags, -1, 0);
-		ASSERT_NE(buff, MAP_FAILED);
 	}
 
 	virtual ~ibvt_sub_mr() {
@@ -232,6 +216,9 @@ struct odp_base : public testing::Test, public ibvt_env {
 	virtual odp_mem &mem() = 0;
 	virtual odp_trans &trans() = 0;
 	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) = 0;
+	virtual void test_page(unsigned long addr) {
+		EXEC(test(addr, addr + PAGE, PAGE));
+	}
 
 	virtual void init() {
 		INIT(ctx.init());
@@ -419,8 +406,7 @@ struct odp_implicit : public odp_mem {
 		simr.init();
 		dimr.init();
 	}
-
-	};
+};
 
 #ifdef HAVE_INFINIBAND_VERBS_EXP_H
 struct ibvt_qp_rc_umr : public ibvt_qp_rc {
@@ -446,16 +432,14 @@ struct ibvt_mw : public ibvt_mr {
 		ibvt_mr(i.env, i.pd, size, a), master(i), qp(q) {}
 
 	virtual void init() {
-		int flags = MAP_PRIVATE|MAP_ANON;
-		if (addr)
-			flags |= MAP_FIXED;
-		buff = (char*)mmap((void*)addr, size, PROT_READ|PROT_WRITE, flags, -1, 0);
-		ASSERT_NE(buff, MAP_FAILED);
+		if (mr)
+			return;
+		EXEC(init_mmap());
 
 		struct ibv_exp_create_mr_in mr_in = {};
 		mr_in.pd = pd.pd;
 		mr_in.attr.create_flags = IBV_EXP_MR_INDIRECT_KLMS;
-		mr_in.attr.max_klm_list_size = 3;
+		mr_in.attr.max_klm_list_size = 4;
 		mr_in.attr.exp_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
 		mr_in.comp_mask = 0;
 		SET(mr, ibv_exp_create_mr(&mr_in));
@@ -522,8 +506,8 @@ struct odp_rdma_read : public odp_base {
 
 	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) {
 		EXEC(mem().reg(src, dst, len));
-		EXEC(mem().src().fill());
 		EXEC(mem().dst().init());
+		EXEC(mem().src().fill());
 
 		EXEC(mem().check_stats_before());
 		for (int i = 0; i < count; i++) {
@@ -622,7 +606,7 @@ TYPED_TEST(odp, t0_crossbound) {
 	ODP_CHK_SUT(PAGE);
 	EXEC(test((1ULL<<(32+1))-PAGE,
 		  (1ULL<<(32+2))-PAGE,
-		  0x2000));
+		  PAGE * 2));
 }
 
 TYPED_TEST(odp, t1_upper) {
