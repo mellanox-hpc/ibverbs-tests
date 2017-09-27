@@ -177,9 +177,14 @@ struct ibvt_srq_tm : public ibvt_srq {
 	}
 
 	virtual void append(ibvt_mr &mr, int start, int length,
-			    uint64_t tag, int *idx)
+			    uint64_t tag, int *idx = NULL)
 	{
 		struct ibv_sge sge = mr.sge(start, length);
+		EXEC(append(&sge, tag, idx));
+	}
+
+	virtual void append(ibv_sge *sge, uint64_t tag, int *idx = NULL)
+	{
 		struct ibv_ops_wr wr;
 		struct ibv_ops_wr *bad_wr = NULL;
 
@@ -188,8 +193,12 @@ struct ibvt_srq_tm : public ibvt_srq {
 		wr.opcode = IBV_WR_TAG_ADD;
 
 		wr.tm.add.recv_wr_id = tag;
-		wr.tm.add.sg_list = &sge;
-		wr.tm.add.num_sge = 1;
+		if (sge) {
+			wr.tm.add.sg_list = sge;
+			wr.tm.add.num_sge = 1;
+		} else {
+			wr.tm.add.num_sge = 0;
+		}
 		wr.tm.add.tag = tag;
 		wr.tm.add.mask = 0xffffffffffffffff;
 		wr.tm.unexpected_cnt = tm.phase_cnt;
@@ -766,6 +775,17 @@ TYPED_TEST(tag_matching, e9_imm) {
 
 	EXEC(send_cq.poll(1));
 	EXEC(srq_cq.poll(1));
+}
+
+TYPED_TEST(tag_matching, e10_nosge) {
+	CHK_SUT(tag-matching);
+	EXEC(fix_uwq());
+
+	EXEC(srq.append(NULL, 1));
+	EXEC(srq_cq.poll(0));
+	EXEC(send_qp.send(this->src_mr.sge(0, sizeof(struct ibv_tmh)), 1, IBV_TMH_EAGER));
+	EXEC(send_cq.poll());
+	EXEC(srq_cq.poll(0));
 }
 
 TYPED_TEST(tag_matching, r0_unexp) {
