@@ -289,24 +289,26 @@ struct ibvt_cq_tm : public Base {
 	ibvt_cq_tm(tag_matching_base &e, ibvt_ctx &c) : Base(e, c), tm(e) {}
 
 	virtual void poll(int n) {
-		struct ibvt_wc wc(*this);
+		int len;
+		do {
+			struct ibvt_wc wc(*this);
 
-		EXEC(do_poll(wc));
+			EXEC(do_poll(wc));
 #ifndef HAVE_INFINIBAND_VERBS_EXP_H
-		struct ibv_wc_tm_info tm_info = {};
-		ibv_wc_read_tm_info(this->cq2(), &tm_info);
+			struct ibv_wc_tm_info tm_info = {};
+			ibv_wc_read_tm_info(this->cq2(), &tm_info);
 #endif
-		if (wc().exp_opcode == IBV_WC_TM_RECV && !(wc().wc_flags & (IBV_WC_TM_MATCH | IBV_WC_TM_DATA_VALID)))
-			tm.phase_cnt ++;
+			if (wc().exp_opcode == IBV_WC_TM_RECV && !(wc().wc_flags & (IBV_WC_TM_MATCH | IBV_WC_TM_DATA_VALID)))
+				tm.phase_cnt ++;
 
-		VERBS_INFO("poll status %s(%d) opcode %s(%d) len %d flags %lx lid %x wr_id %lx\n",
-				ibv_wc_status_str(wc().status), wc().status,
-				ibv_wc_opcode_str(wc().exp_opcode), wc().exp_opcode,
-				wc().byte_len, (uint64_t)wc().wc_flags, wc().slid,
-				wc().wr_id);
-		ASSERT_FALSE(wc().status) << ibv_wc_status_str(wc().status);
-		if (n && !wc().byte_len)
-			EXEC(poll(0));
+			VERBS_INFO("poll status %s(%d) opcode %s(%d) len %d flags %lx lid %x wr_id %lx\n",
+					ibv_wc_status_str(wc().status), wc().status,
+					ibv_wc_opcode_str(wc().exp_opcode), wc().exp_opcode,
+					wc().byte_len, (uint64_t)wc().wc_flags, wc().slid,
+					wc().wr_id);
+			ASSERT_FALSE(wc().status) << ibv_wc_status_str(wc().status);
+			len = wc().byte_len;
+		} while (n-- && !len);
 	}
 };
 
