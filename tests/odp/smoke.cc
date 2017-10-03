@@ -31,7 +31,6 @@
 #endif
 
 #define __STDC_LIMIT_MACROS
-
 #include <inttypes.h>
 #include <signal.h>
 #include <stdint.h>
