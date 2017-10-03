@@ -35,6 +35,7 @@
 
 #include <stdio.h>
 #include <errno.h>
+#define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>   /* printf PRItn */
