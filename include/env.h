@@ -732,7 +732,8 @@ struct ibvt_mr : public ibvt_obj {
 		size(s),
 		addr(a),
 		access_flags(af),
-		buff(NULL) {}
+		buff(NULL),
+		mem(NULL) {}
 
 	virtual int mmap_flags() {
 		return MAP_PRIVATE|MAP_ANON;
@@ -766,7 +767,8 @@ struct ibvt_mr : public ibvt_obj {
 
 	virtual ~ibvt_mr() {
 		FREE(ibv_dereg_mr, mr);
-		munmap(mem, mem_size);
+		if (mem && mem != MAP_FAILED)
+			munmap(mem, mem_size);
 	}
 
 	virtual void fill() {

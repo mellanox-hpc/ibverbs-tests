@@ -23,7 +23,7 @@
  *  runs for the full 500 loops without error
  *******************************************************************************************/ 
 #define REUSE_SIG_MR        1
-#define REREG_SIG_MR        0
+#define REREG_SIG_MR        1
 
 /*******************************************************************************************
  * Variables that need to be set by Mellanox:
@@ -43,6 +43,7 @@ uint32_t                    rkey;           // Taken from NVMF command
 // Test phases
 #define EXEC_SIG_MR         1
 #define EXEC_RDMA           2
+#define EXEC_INVAL_MR       3
 
 // Buffer size
 #define TEST_BUF_SIZE       0x100000
@@ -62,6 +63,7 @@ void mellanox_exec_test(int phase);
 void mellanox_test_completion(struct ibv_wc  *wc);
 void mellanox_reg_sig_mr(void);
 void mellanox_single_rdma(void);
+void mellanox_invalidate_sig_mr(void);
 
 /*******************************************************************************************
  * Test entry point
@@ -144,6 +146,9 @@ mellanox_exec_test(int phase)
             // Phase 1 - register SIG MR
             printf("Loop %d: Reg SIG MR\n", iterations);
             mellanox_reg_sig_mr();
+	} else if (phase == EXEC_INVAL_MR) {
+            printf("Loop %d: Inval SIG MR\n", iterations);
+            mellanox_invalidate_sig_mr();
         } else {
             // Phase 2 - RDMA
             printf("Loop %d: RDMA\n", iterations);
@@ -178,7 +183,7 @@ mellanox_test_completion(struct ibv_wc  *wc)
         // Restart the test with Phase 2 (RDMA)
         printf("reg sig mr done\n");
         mellanox_exec_test(2);
-    } else {
+    } else if((wc->wr_id & 0xF) == 0x2){
         printf("rdma %d complete\n", iterations);
 #if REREG_SIG_MR
         // Re-register the SIG MR
@@ -187,6 +192,8 @@ mellanox_test_completion(struct ibv_wc  *wc)
         // Just RDMA over and over again
         mellanox_exec_test(EXEC_RDMA);
 #endif
+    } else {
+        mellanox_exec_test(EXEC_INVAL_MR);
     }
 }
 
@@ -240,6 +247,29 @@ mellanox_reg_sig_mr(void)
     ewr.wr.rdma.rkey = 0;
     ewr.wr.rdma.remote_addr = 0;
     ewr.exp_opcode = IBV_EXP_WR_REG_SIG_MR;
+    ewr.exp_send_flags = IBV_SEND_SIGNALED;
+    // Issue the WR and return.  Testing will restart upon completion of
+    // this WR.
+    rc = ibv_exp_post_send(qp, &ewr, &bad_ewr);
+    assert(rc == 0);
+}
+
+void
+mellanox_invalidate_sig_mr(void)
+{
+    int                             rc;
+    struct ibv_exp_send_wr          ewr, *bad_ewr = NULL;
+    struct ibv_exp_mr_status status;
+
+    ibv_exp_check_mr_status(sigmr, IBV_EXP_MR_CHECK_SIG_STATUS, &status);
+
+    memset(&ewr, 0, sizeof(struct ibv_exp_send_wr));
+    // Set the top bits of the wr_id to 0xABCD to identify it as
+    // a test operation, and set the bottom nibble to identify it
+    // as a INV_SIG_MR
+    ewr.wr_id = 0xABCD0000 | 0x2;
+    ewr.ex.invalidate_rkey = sigmr->rkey;
+    ewr.exp_opcode = IBV_EXP_WR_LOCAL_INV;
     ewr.exp_send_flags = IBV_SEND_SIGNALED;
     // Issue the WR and return.  Testing will restart upon completion of
     // this WR.
