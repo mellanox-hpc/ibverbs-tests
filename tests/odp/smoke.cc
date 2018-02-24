@@ -47,12 +47,14 @@
 #include "env.h"
 
 #if HAVE_DECL_IBV_PREFETCH_MR
-#define HAVE_PREFETCH
+#define HAVE_PREFETCH 1
 #define IBV_EXP_PREFETCH_WRITE_ACCESS 0
 #elif HAVE_DECL_IBV_EXP_PREFETCH_MR
-#define HAVE_PREFETCH
+#define HAVE_PREFETCH 1
 #define ibv_prefetch_attr ibv_exp_prefetch_attr
 #define ibv_prefetch_mr ibv_exp_prefetch_mr
+#else
+#define HAVE_PREFETCH 0
 #endif
 
 struct ibvt_mr_implicit : public ibvt_mr {
@@ -67,7 +69,7 @@ struct ibvt_mr_implicit : public ibvt_mr {
 	}
 };
 
-#ifdef HAVE_PREFETCH
+#if HAVE_PREFETCH
 struct ibvt_mr_pf : public ibvt_mr {
 	ibvt_mr_pf(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a, long af) :
 		ibvt_mr(e, p, s, a, af) {}
@@ -98,9 +100,9 @@ struct ibvt_mr_hp : public ibvt_mr {
 #endif
 
 struct ibvt_sub_mr : public ibvt_mr {
-	ibvt_mr_implicit &master;
+	ibvt_mr &master;
 
-	ibvt_sub_mr(ibvt_mr_implicit &i, intptr_t a, size_t size) :
+	ibvt_sub_mr(ibvt_mr &i, intptr_t a, size_t size) :
 		ibvt_mr(i.env, i.pd, size, a), master(i) {}
 
 	virtual void init() {
@@ -271,7 +273,7 @@ struct odp_qp : public odp_trans {
 
 typedef odp_qp<ibvt_qp_rc> odp_rc;
 
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_INFINIBAND_VERBS_EXP_H
 struct odp_side_dci : public odp_side {
 	ibvt_cq cq;
 	ibvt_qp_dc qp;
@@ -364,7 +366,7 @@ struct odp_explicit : public odp_mem {
 	}
 };
 
-#ifdef HAVE_PREFETCH
+#if HAVE_PREFETCH
 struct odp_prefetch : public odp_mem {
 	odp_prefetch(odp_side &s, odp_side &d) : odp_mem(s, d) {}
 
@@ -407,7 +409,7 @@ struct odp_implicit : public odp_mem {
 	}
 };
 
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_INFINIBAND_VERBS_EXP_H
 struct ibvt_qp_rc_umr : public ibvt_qp_rc {
 	ibvt_qp_rc_umr(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) :
 		ibvt_qp_rc(e, p, c) {}
@@ -571,7 +573,7 @@ typedef testing::Types<
 	types<odp_explicit, odp_rc, odp_send>,
 	types<odp_explicit, odp_rc, odp_rdma_read>,
 	types<odp_explicit, odp_rc, odp_rdma_write>,
-#ifdef HAVE_PREFETCH
+#if HAVE_PREFETCH
 	types<odp_prefetch, odp_rc, odp_send>,
 	types<odp_prefetch, odp_rc, odp_rdma_read>,
 	types<odp_prefetch, odp_rc, odp_rdma_write>,
@@ -584,7 +586,7 @@ typedef testing::Types<
 	types<odp_hugetlb, odp_rc, odp_rdma_read>,
 	types<odp_hugetlb, odp_rc, odp_rdma_write>,
 #endif
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_INFINIBAND_VERBS_EXP_H
 	types<odp_explicit, odp_dc, odp_rdma_write>,
 	types<odp_implicit, odp_dc, odp_rdma_write>,
 	types<odp_off, odp_dc, odp_send>,

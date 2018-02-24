@@ -244,6 +244,7 @@ struct ibvt_peer_op : public ibvt_obj {
 		memset(sge, 0, MAX_WR*sizeof(*sge));
 		for(; op; op = op->next) {
 			wr[i]._wr_opcode = IBV_WR_RDMA_WRITE;
+			wr[i]._wr_send_flags = IBV_SEND_SIGNALED;
 			if (op->type == IBV_PEER_OP_STORE_DWORD ||
 					op->type == IBV_PEER_OP_POLL_AND_DWORD ||
 					op->type == IBV_PEER_OP_POLL_NOR_DWORD ||
@@ -384,11 +385,10 @@ struct ibvt_peer_op : public ibvt_obj {
 	}
 };
 
-template <typename T1, typename T2, typename T3>
+template <typename T1, typename T2>
 struct types {
 	typedef T1 QP;
 	typedef T2 CQ;
-	typedef T3 MR;
 };
 
 template <typename T>
@@ -430,8 +430,8 @@ struct peerdirect_test : public testing::Test, public ibvt_env {
 	struct ibvt_cq cq_peer;
 	struct qp_peerdirect send_qp;
 	struct qp_peerdirect recv_qp;
-	struct T::MR src_mr;
-	struct T::MR dst_mr;
+	struct ibvt_mr src_mr;
+	struct ibvt_mr dst_mr;
 	struct ibvt_qp_rc qp_peer;
 
 	peerdirect_test() :
@@ -485,6 +485,10 @@ struct peerdirect_test : public testing::Test, public ibvt_env {
 		EXEC(recv_qp.recv(dst_mr.sge(start, length)));
 	}
 
+	void check(int count) {
+		EXEC(dst_mr.check(this->recv_qp.hdr_len(), 0, count));
+	}
+
 	void send_peer_prep(size_t n) {
 		for(size_t i = 0; i < n; i++) {
 			EXEC(send(SZ/n*i, SZ/n));
@@ -511,16 +515,15 @@ struct peerdirect_test : public testing::Test, public ibvt_env {
 		if (skip)
 			return;
 		ASSERT_FALSE(HasFailure());
-		EXEC(dst_mr.check());
 	}
 };
 
 
 typedef testing::Types<
-	types<ibvt_qp_rc, ibvt_cq, ibvt_mr>,
-	types<ibvt_qp_rc, ibvt_cq_event, ibvt_mr>,
-	types<ibvt_qp_ud, ibvt_cq, ibvt_mr_ud>,
-	types<ibvt_qp_ud, ibvt_cq_event, ibvt_mr_ud>
+	types<ibvt_qp_rc, ibvt_cq>,
+	types<ibvt_qp_rc, ibvt_cq_event>,
+	types<ibvt_qp_ud, ibvt_cq>,
+	types<ibvt_qp_ud, ibvt_cq_event>
 > ibvt_env_list;
 
 TYPED_TEST_CASE(peerdirect_test, ibvt_env_list);
@@ -530,6 +533,7 @@ TYPED_TEST(peerdirect_test, t1_1_send) {
 	EXEC(recv(0, SZ));
 	EXEC(send(0, SZ));
 	EXEC(op(0).xmit_peer());
+	EXEC(check(1));
 }
 
 TYPED_TEST(peerdirect_test, t2_2_sends) {
@@ -542,6 +546,7 @@ TYPED_TEST(peerdirect_test, t2_2_sends) {
 	EXEC(op(0).peer_prep(2));
 	EXEC(op(0).peer_exec());
 	EXEC(op(0).peer_poll());
+	EXEC(check(2));
 }
 
 TYPED_TEST(peerdirect_test, t3_2_sends_2_pd) {
@@ -551,6 +556,7 @@ TYPED_TEST(peerdirect_test, t3_2_sends_2_pd) {
 	EXEC(op(0).peer_poll());
 	EXEC(op(1).peer_exec());
 	EXEC(op(1).peer_poll());
+	EXEC(check(2));
 }
 
 TYPED_TEST(peerdirect_test, t4_rollback) {
@@ -563,6 +569,7 @@ TYPED_TEST(peerdirect_test, t4_rollback) {
 
 	EXEC(send(SZ/2, SZ/2));
 	EXEC(op(2).xmit_peer());
+	EXEC(check(2));
 }
 
 TYPED_TEST(peerdirect_test, t5_poll_abort) {
@@ -577,6 +584,7 @@ TYPED_TEST(peerdirect_test, t5_poll_abort) {
 	EXEC(op(2).peer_poll());
 	EXEC(op(3).peer_exec());
 	EXEC(op(3).peer_abort());
+	EXEC(check(4));
 }
 
 TYPED_TEST(peerdirect_test, t6_pool_abort_16a) {
@@ -589,6 +597,7 @@ TYPED_TEST(peerdirect_test, t6_pool_abort_16a) {
 		EXEC(op(i+1).peer_exec());
 		EXEC(op(i+1).peer_abort());
 	}
+	EXEC(check(16));
 }
 
 TYPED_TEST(peerdirect_test, t7_pool_abort_16b) {
@@ -601,6 +610,7 @@ TYPED_TEST(peerdirect_test, t7_pool_abort_16b) {
 		EXEC(op(i+1).peer_exec());
 		EXEC(op(i+1).peer_poll());
 	}
+	EXEC(check(16));
 }
 
 TYPED_TEST(peerdirect_test, t8_pool16) {
@@ -611,6 +621,7 @@ TYPED_TEST(peerdirect_test, t8_pool16) {
 		EXEC(op(i).peer_exec());
 		EXEC(op(i).peer_poll());
 	}
+	EXEC(check(16));
 }
 
 TYPED_TEST(peerdirect_test, t9_abort16) {
@@ -621,6 +632,7 @@ TYPED_TEST(peerdirect_test, t9_abort16) {
 		EXEC(op(i).peer_exec());
 		EXEC(op(i).peer_abort());
 	}
+	EXEC(check(16));
 }
 
 

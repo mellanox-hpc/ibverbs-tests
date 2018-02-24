@@ -49,11 +49,10 @@
 //#define SZ 1024
 #define SZ 128
 
-template <typename T1, typename T2, typename T3>
-struct types_3 {
+template <typename T1, typename T2>
+struct types_2 {
 	typedef T1 QP;
-	typedef T2 MR;
-	typedef T3 CQ;
+	typedef T2 CQ;
 };
 
 template <typename T>
@@ -63,8 +62,8 @@ struct base_test : public testing::Test, public ibvt_env {
 	struct T::CQ cq;
 	struct T::QP send_qp;
 	struct T::QP recv_qp;
-	struct T::MR src_mr;
-	struct T::MR dst_mr;
+	struct ibvt_mr src_mr;
+	struct ibvt_mr dst_mr;
 
 	base_test() :
 		ctx(*this, NULL),
@@ -82,6 +81,10 @@ struct base_test : public testing::Test, public ibvt_env {
 
 	void recv(intptr_t start, size_t length) {
 		EXEC(recv_qp.recv(dst_mr.sge(start, length)));
+	}
+
+	void check(int count) {
+		EXEC(dst_mr.check(this->recv_qp.hdr_len(), 0, count));
 	}
 
 	virtual void SetUp() {
@@ -103,10 +106,10 @@ struct base_test : public testing::Test, public ibvt_env {
 };
 
 typedef testing::Types<
-	types_3<ibvt_qp_rc, ibvt_mr, ibvt_cq>,
-	types_3<ibvt_qp_ud, ibvt_mr_ud, ibvt_cq>,
-	types_3<ibvt_qp_rc, ibvt_mr, ibvt_cq_event>,
-	types_3<ibvt_qp_ud, ibvt_mr_ud, ibvt_cq_event>
+	types_2<ibvt_qp_rc, ibvt_cq>,
+	types_2<ibvt_qp_ud, ibvt_cq>,
+	types_2<ibvt_qp_rc, ibvt_cq_event>,
+	types_2<ibvt_qp_ud, ibvt_cq_event>
 > base_test_env_list;
 
 TYPED_TEST_CASE(base_test, base_test_env_list);
@@ -117,7 +120,7 @@ TYPED_TEST(base_test, t0) {
 	EXEC(send(0, SZ));
 	EXEC(cq.poll());
 	EXEC(cq.poll());
-	EXEC(dst_mr.check());
+	EXEC(check(1));
 }
 
 TYPED_TEST(base_test, t1) {
@@ -130,15 +133,15 @@ TYPED_TEST(base_test, t1) {
 	EXEC(send(SZ/2, SZ/2));
 	EXEC(cq.poll());
 	EXEC(cq.poll());
-	EXEC(dst_mr.check());
+	EXEC(check(2));
 }
 
 template <typename T>
 struct rdma_test : public base_test<T> {};
 
 typedef testing::Types<
-	types_3<ibvt_qp_rc, ibvt_mr, ibvt_cq>,
-	types_3<ibvt_qp_rc, ibvt_mr, ibvt_cq_event>
+	types_2<ibvt_qp_rc, ibvt_cq>,
+	types_2<ibvt_qp_rc, ibvt_cq_event>
 > rdma_test_env_list;
 
 TYPED_TEST_CASE(rdma_test, rdma_test_env_list);
@@ -157,23 +160,22 @@ TYPED_TEST(rdma_test, t1) {
 	EXEC(dst_mr.check());
 }
 
-template <typename T1, typename T2, typename T3, typename T4>
-struct types_4 {
+template <typename T1, typename T2, typename T3>
+struct types_3 {
 	typedef T1 Send;
 	typedef T2 Recv;
-	typedef T3 MR;
-	typedef T4 CQ;
+	typedef T3 CQ;
 };
 
 typedef testing::Types<
-	types_4<ibvt_qp_rc, ibvt_qp_srq<ibvt_qp_rc>, ibvt_mr, ibvt_cq>,
-	types_4<ibvt_qp_rc, ibvt_qp_srq<ibvt_qp_rc>, ibvt_mr, ibvt_cq_event>,
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
-	types_4<ibvt_qp_dc, ibvt_dct, ibvt_mr, ibvt_cq>,
-	types_4<ibvt_qp_dc, ibvt_dct, ibvt_mr, ibvt_cq_event>,
+	types_3<ibvt_qp_rc, ibvt_qp_srq<ibvt_qp_rc>, ibvt_cq>,
+	types_3<ibvt_qp_rc, ibvt_qp_srq<ibvt_qp_rc>, ibvt_cq_event>,
+#if HAVE_INFINIBAND_VERBS_EXP_H
+	types_3<ibvt_qp_dc, ibvt_dct, ibvt_cq>,
+	types_3<ibvt_qp_dc, ibvt_dct, ibvt_cq_event>,
 #endif
-	types_4<ibvt_qp_ud, ibvt_qp_srq<ibvt_qp_ud>, ibvt_mr_ud, ibvt_cq>,
-	types_4<ibvt_qp_ud, ibvt_qp_srq<ibvt_qp_ud>, ibvt_mr_ud, ibvt_cq_event>
+	types_3<ibvt_qp_ud, ibvt_qp_srq<ibvt_qp_ud>, ibvt_cq>,
+	types_3<ibvt_qp_ud, ibvt_qp_srq<ibvt_qp_ud>, ibvt_cq_event>
 > srq_test_env_list;
 
 template <typename T>
@@ -184,8 +186,8 @@ struct srq_test : public testing::Test, public ibvt_env {
 	struct ibvt_srq srq;
 	struct T::Send send_qp;
 	struct T::Recv recv_obj;
-	struct T::MR src_mr;
-	struct T::MR dst_mr;
+	struct ibvt_mr src_mr;
+	struct ibvt_mr dst_mr;
 
 	srq_test() :
 		ctx(*this, NULL),
@@ -204,6 +206,10 @@ struct srq_test : public testing::Test, public ibvt_env {
 
 	void recv(intptr_t start, size_t length) {
 		EXEC(srq.recv(dst_mr.sge(start, length)));
+	}
+
+	void check(int count) {
+		EXEC(dst_mr.check(this->send_qp.hdr_len(), 0, count));
 	}
 
 	virtual void SetUp() {
@@ -233,6 +239,6 @@ TYPED_TEST(srq_test, t0) {
 	EXEC(send(0, SZ));
 	EXEC(cq.poll());
 	EXEC(cq.poll());
-	EXEC(dst_mr.check());
+	EXEC(check(1));
 }
 
