@@ -49,7 +49,7 @@
 
 #include <infiniband/verbs.h>
 
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_INFINIBAND_VERBS_EXP_H
 #include <infiniband/verbs_exp.h>
 
 #define ibv_flow_attr		       ibv_exp_flow_attr
@@ -243,7 +243,7 @@
 		if (this->env.run) \
 			ASSERT_EQ(0, x) << "errno: " << errno; \
 		else if (x) { \
-			VERBS_NOTICE("%3d.%p: failed\t%s" #x " - skipping test\n", __LINE__, this, env.lvl_str); \
+			VERBS_NOTICE("%3d.%p: failed\t%s" #x " - skipping test (errno %d)\n", __LINE__, this, env.lvl_str, errno); \
 			this->env.skip = 1; \
 			return; \
 		} \
@@ -255,7 +255,7 @@
 		if (this->env.run) \
 			ASSERT_TRUE(x) << #y << " errno: " << errno; \
 		else if (!x) { \
-			VERBS_NOTICE("%3d.%p: failed\t%s" #y " - skipping test\n", __LINE__, this, env.lvl_str); \
+			VERBS_NOTICE("%3d.%p: failed\t%s" #y " - skipping test (errno %d)\n", __LINE__, this, env.lvl_str, errno); \
 			this->env.skip = 1; \
 			return; \
 		} \
@@ -330,7 +330,7 @@ struct ibvt_env {
 	void init_ram() {
 		int fd = open("/proc/meminfo", O_RDONLY);
 		ASSERT_GT(fd, 0);
-		read(fd, meminfo, sizeof(meminfo));
+		ASSERT_GT(read(fd, meminfo, sizeof(meminfo)), 0);
 		close(fd);
 		ram_init = 1;
 	}
@@ -379,7 +379,7 @@ struct ibvt_ctx : public ibvt_obj {
 	char *pdev_name;
 	char *vdev_name;
 
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_INFINIBAND_VERBS_EXP_H
 
 #define DEV_FS "/sys/class/infiniband_verbs"
 #define DEBUGFS "/sys/kernel/debug/mlx5"
@@ -390,7 +390,9 @@ struct ibvt_ctx : public ibvt_obj {
 		struct stat st;
 
 		sprintf(path, "/sys/class/infiniband/%s", ibv_get_device_name(dev));
-		readlink(path, pdev, PATH_MAX);
+		if (readlink(path, pdev, PATH_MAX) <= 0)
+			return;
+
 		while ((tok = strsep(&p, "/"))) {
 			if (tok[0] == '.')
 				continue;
@@ -433,7 +435,10 @@ struct ibvt_ctx : public ibvt_obj {
 
 		if (fd < 0)
 			return -1;
-		read(fd, buff, sizeof(buff));
+		if (read(fd, buff, sizeof(buff)) <= 0) {
+			close(fd);
+			return -1;
+		}
 		close(fd);
 		return atoi(buff);
 	}
@@ -606,7 +611,7 @@ struct ibvt_cq : public ibvt_obj {
 		ASSERT_FALSE(wc().status) << ibv_wc_status_str(wc().status);
 	}
 
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_INFINIBAND_VERBS_EXP_H
 	virtual void do_poll(struct ibvt_wc &wc) {
 		long result = 0, retries = POLL_RETRIES;
 		errno = 0;
@@ -660,7 +665,7 @@ struct ibvt_cq : public ibvt_obj {
 };
 
 inline ibvt_wc::~ibvt_wc() {
-#ifndef HAVE_INFINIBAND_VERBS_EXP_H
+#if !HAVE_INFINIBAND_VERBS_EXP_H
 	ibv_end_poll(cq.cq2());
 #endif
 }
@@ -819,18 +824,7 @@ struct ibvt_srq : public ibvt_obj {
 	}
 
 	virtual void init_attr(struct ibv_srq_init_attr_ex &attr) {
-#ifndef HAVE_INFINIBAND_VERBS_EXP_H
-		attr.comp_mask =
-			IBV_SRQ_INIT_ATTR_TYPE |
-			IBV_SRQ_INIT_ATTR_PD |
-			IBV_SRQ_INIT_ATTR_CQ;
-
-
-		attr.pd = pd.pd;
-		attr.cq = cq.cq;
-		attr.attr.max_wr  = 128;
-		attr.attr.max_sge = 1;
-#else
+#if HAVE_INFINIBAND_VERBS_EXP_H
 		attr.comp_mask =
 			IBV_EXP_CREATE_SRQ_CQ;
 		attr.srq_type = IBV_EXP_SRQT_BASIC;
@@ -838,6 +832,15 @@ struct ibvt_srq : public ibvt_obj {
 		attr.cq = cq.cq;
 		attr.base.attr.max_wr  = 128;
 		attr.base.attr.max_sge = 1;
+#else
+		attr.comp_mask =
+			IBV_SRQ_INIT_ATTR_TYPE |
+			IBV_SRQ_INIT_ATTR_PD |
+			IBV_SRQ_INIT_ATTR_CQ;
+		attr.pd = pd.pd;
+		attr.cq = cq.cq;
+		attr.attr.max_wr  = 128;
+		attr.attr.max_sge = 1;
 #endif
 	}
 
@@ -1101,7 +1104,7 @@ struct ibvt_qp_ud : public ibvt_qp_rc {
 	virtual int hdr_len() { return 40; }
 };
 
-#ifdef HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_INFINIBAND_VERBS_EXP_H
 struct ibvt_dct : public ibvt_obj {
 	struct ibv_dct *dct;
 	ibvt_pd &pd;
