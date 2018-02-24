@@ -805,43 +805,6 @@ struct ibvt_mr : public ibvt_obj {
 	virtual struct ibv_sge sge() { return sge(0, size); }
 };
 
-struct ibvt_mr_hdr : public ibvt_mr {
-	size_t hdr_size;
-
-	ibvt_mr_hdr(ibvt_env &e, ibvt_pd &p, size_t s, size_t h) : ibvt_mr(e, p, s), hdr_size(h) {}
-
-	virtual void init() {
-		EXEC(ibvt_mr::init());
-		memset(buff, 0xff, size);
-	}
-
-	virtual void fill() {
-		EXEC(ibvt_mr::init());
-		for (size_t i = 0; i < size; i++)
-			buff[i] = (i & 0xff) | 0x80;
-	}
-
-	virtual void check() {
-		size_t in_hdr = 0;
-		for (size_t i = 0; i < size; i++) {
-			if (in_hdr)
-				in_hdr--;
-			else if (0x80 & buff[i])
-				ASSERT_EQ((char)((i & 0xff) | 0x80), buff[i]) << "i=" << i;
-			else {
-				VERBS_TRACE("ibvt_mr_hdr skipping header at 0x%zx\n", i);
-				in_hdr = hdr_size - 1;
-			}
-		}
-		memset(buff, 0, size);
-	}
-};
-
-struct ibvt_mr_ud : public ibvt_mr_hdr {
-	ibvt_mr_ud(ibvt_env &e, ibvt_pd &p, size_t s) :
-		ibvt_mr_hdr(e, p, s, 40) {}
-};
-
 struct ibvt_srq : public ibvt_obj {
 	struct ibv_srq *srq;
 
@@ -1009,6 +972,8 @@ struct ibvt_qp : public ibvt_obj {
 	}
 
 	virtual void connect(ibvt_qp *remote) = 0;
+
+	virtual int hdr_len() { return 0; }
 };
 
 struct ibvt_qp_rc : public ibvt_qp {
@@ -1132,6 +1097,8 @@ struct ibvt_qp_ud : public ibvt_qp_rc {
 
 		DO(ibv_modify_qp(qp, &attr, flags));
 	}
+
+	virtual int hdr_len() { return 40; }
 };
 
 #ifdef HAVE_INFINIBAND_VERBS_EXP_H
