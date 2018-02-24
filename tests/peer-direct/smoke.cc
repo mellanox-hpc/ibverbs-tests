@@ -244,6 +244,7 @@ struct ibvt_peer_op : public ibvt_obj {
 		memset(sge, 0, MAX_WR*sizeof(*sge));
 		for(; op; op = op->next) {
 			wr[i]._wr_opcode = IBV_WR_RDMA_WRITE;
+			wr[i]._wr_send_flags = IBV_SEND_SIGNALED;
 			if (op->type == IBV_PEER_OP_STORE_DWORD ||
 					op->type == IBV_PEER_OP_POLL_AND_DWORD ||
 					op->type == IBV_PEER_OP_POLL_NOR_DWORD ||
