@@ -955,7 +955,9 @@ class GTEST_API_ UnitTestImpl {
   // Returns true iff the unit test failed (i.e. some test case failed
   // or something outside of all tests failed).
   bool Failed() const {
-    return failed_test_case_count() > 0 || ad_hoc_test_result()->Failed();
+    return failed_test_case_count() > 0 ||
+	   ad_hoc_test_result()->Failed() ||
+	   successful_test_count() == 0;
   }
 
   // Gets the i-th test case among all the test cases. i can range from 0 to

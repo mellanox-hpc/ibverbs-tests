@@ -425,45 +425,6 @@ struct ibvt_qp_rc_umr : public ibvt_qp_rc {
 
 typedef odp_qp<ibvt_qp_rc_umr> odp_rc_umr;
 
-struct ibvt_mw : public ibvt_mr {
-	ibvt_mr &master;
-	ibvt_qp &qp;
-
-	ibvt_mw(ibvt_mr &i, intptr_t a, size_t size, ibvt_qp &q) :
-		ibvt_mr(i.env, i.pd, size, a), master(i), qp(q) {}
-
-	virtual void init() {
-		if (mr)
-			return;
-		EXEC(init_mmap());
-
-		struct ibv_exp_create_mr_in mr_in = {};
-		mr_in.pd = pd.pd;
-		mr_in.attr.create_flags = IBV_EXP_MR_INDIRECT_KLMS;
-		mr_in.attr.max_klm_list_size = 4;
-		mr_in.attr.exp_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
-		mr_in.comp_mask = 0;
-		SET(mr, ibv_exp_create_mr(&mr_in));
-
-		struct ibv_exp_mem_region mem_reg = {};
-		mem_reg.base_addr = (intptr_t)buff;
-		mem_reg.length = size;
-		mem_reg.mr = master.mr;
-
-		struct ibv_exp_send_wr wr = {}, *bad_wr = NULL;
-		wr.exp_opcode = IBV_EXP_WR_UMR_FILL;
-		wr.ext_op.umr.umr_type = IBV_EXP_UMR_MR_LIST;
-		wr.ext_op.umr.exp_access = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
-		wr.ext_op.umr.modified_mr = mr;
-		wr.ext_op.umr.num_mrs = 1;
-		wr.ext_op.umr.mem_list.mem_reg_list = &mem_reg;
-		wr.ext_op.umr.base_addr = (intptr_t)buff;
-		wr.exp_send_flags = IBV_EXP_SEND_INLINE;
-
-		DO(ibv_exp_post_send(qp.qp, &wr, &bad_wr));
-	}
-};
-
 struct odp_implicit_mw : public odp_implicit {
 	odp_implicit_mw(odp_side &s, odp_side &d) :
 		odp_implicit(s, d) {};
@@ -664,4 +625,69 @@ TYPED_TEST(odp_long, t6_16Gplus) {
 		  0x400000100,
 		  0x100));
 }
+
+#if HAVE_INFINIBAND_VERBS_EXP_H
+struct odp_implicit_mw_1imr : public odp_mem {
+	ibvt_mr_implicit imr;
+
+	odp_implicit_mw_1imr(odp_side &s, odp_side &d) : odp_mem(s, d),
+		imr(s.env, s.pd, s.access_flags | d.access_flags) {}
+
+	virtual void reg(unsigned long src_addr, unsigned long dst_addr, size_t len) {
+		SET(psrc, new ibvt_mw(imr, src_addr, len, ssrc.get_qp()));
+		SET(pdst, new ibvt_mw(imr, dst_addr, len, sdst.get_qp()));
+	}
+
+	virtual void init() {
+		imr.init();
+	}
+};
+
+struct odp_persist : public odp_mem {
+	ibvt_mr *smr;
+	ibvt_mr *dmr;
+
+	odp_persist(odp_side &s, odp_side &d) : odp_mem(s, d), smr(NULL), dmr(NULL) {}
+
+	virtual void reg(unsigned long src_addr, unsigned long dst_addr, size_t len) {
+		if (!smr) {
+			SET(smr, new ibvt_mr(ssrc.env, ssrc.pd, len, src_addr, ssrc.access_flags | IBV_ACCESS_ON_DEMAND));
+			SET(dmr, new ibvt_mr(sdst.env, sdst.pd, len, dst_addr, sdst.access_flags | IBV_ACCESS_ON_DEMAND));
+			smr->init();
+			dmr->init();
+		}
+		SET(psrc, new ibvt_sub_mr(*smr, src_addr, len));
+		SET(pdst, new ibvt_sub_mr(*dmr, dst_addr, len));
+	}
+
+	~odp_persist() {
+		if (smr)
+			delete smr;
+		if (dmr)
+			delete dmr;
+	}
+};
+
+template <typename T>
+struct odp_spec : public odp<T> { odp_spec(): odp<T>() {} };
+
+typedef testing::Types<
+	//types<odp_implicit_mw_1imr, odp_rc_umr, odp_send>
+	//types<odp_persist, odp_rc, odp_send>,
+	//types<odp_persist, odp_rc, odp_rdma_read>,
+	//types<odp_persist, odp_rc, odp_rdma_write>
+	types<odp_implicit, odp_rc, odp_send>,
+	types<odp_implicit, odp_rc, odp_rdma_read>,
+	types<odp_implicit, odp_rc, odp_rdma_write>
+> odp_env_list_spec;
+
+TYPED_TEST_CASE(odp_spec, odp_env_list_spec);
+
+TYPED_TEST(odp_spec, s0) {
+	ODP_CHK_SUT(PAGE);
+	unsigned long p = 0x2000000000;
+	for (int i = 0; i < 20000; i++)
+		EXEC(test(p, p+0x40000, 0x40000));
+}
+#endif
 
