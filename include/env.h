@@ -1257,5 +1257,53 @@ struct ibvt_qp_srq : public QP {
 
 };
 
+#if HAVE_INFINIBAND_VERBS_EXP_H
+struct ibvt_mw : public ibvt_mr {
+	ibvt_mr &master;
+	ibvt_qp &qp;
+
+	ibvt_mw(ibvt_mr &i, intptr_t a, size_t size, ibvt_qp &q) :
+		ibvt_mr(i.env, i.pd, size, a), master(i), qp(q) {}
+
+	virtual void init() {
+		intptr_t addr;
+		if (mr)
+			return;
+		if (master.buff) {
+			addr = (intptr_t)master.buff;
+			buff = master.buff;
+		} else {
+			EXEC(init_mmap());
+			addr = (intptr_t)buff;
+		}
+
+		struct ibv_exp_create_mr_in mr_in = {};
+		mr_in.pd = pd.pd;
+		mr_in.attr.create_flags = IBV_EXP_MR_INDIRECT_KLMS;
+		mr_in.attr.max_klm_list_size = 4;
+		mr_in.attr.exp_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+		mr_in.comp_mask = 0;
+		SET(mr, ibv_exp_create_mr(&mr_in));
+
+		struct ibv_exp_mem_region mem_reg = {};
+		mem_reg.base_addr = addr;
+		mem_reg.length = size;
+		mem_reg.mr = master.mr;
+
+		struct ibv_exp_send_wr wr = {}, *bad_wr = NULL;
+		wr.exp_opcode = IBV_EXP_WR_UMR_FILL;
+		wr.ext_op.umr.umr_type = IBV_EXP_UMR_MR_LIST;
+		wr.ext_op.umr.exp_access = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+		wr.ext_op.umr.modified_mr = mr;
+		wr.ext_op.umr.num_mrs = 1;
+		wr.ext_op.umr.mem_list.mem_reg_list = &mem_reg;
+		wr.ext_op.umr.base_addr = addr;
+		wr.exp_send_flags = IBV_EXP_SEND_INLINE;
+
+		DO(ibv_exp_post_send(qp.qp, &wr, &bad_wr));
+	}
+};
+#endif
+
 #endif
 
