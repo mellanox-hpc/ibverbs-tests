@@ -141,7 +141,7 @@ mellanox_test(ibv_pd *_pd, ibv_qp *_qp, ibv_sge sge)
 void
 mellanox_exec_test(int phase)
 {
-    if(iterations < 500) {
+    if(iterations < 455) {
         if(phase == EXEC_SIG_MR) {
             // Phase 1 - register SIG MR
             printf("Loop %d: Reg SIG MR\n", iterations);
