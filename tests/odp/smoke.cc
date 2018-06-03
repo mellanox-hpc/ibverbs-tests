@@ -62,6 +62,7 @@ struct ibvt_mr_implicit : public ibvt_mr {
 		ibvt_mr(e, p, 0, 0, a) {}
 
 	virtual void init() {
+		DO(!(pd.ctx.dev_attr.odp_caps.general_odp_caps & IBV_ODP_SUPPORT_IMPLICIT));
 		EXEC(pd.init());
 		SET(mr, ibv_reg_mr(pd.pd, 0, UINT64_MAX, IBV_ACCESS_ON_DEMAND | access_flags));
 		if (mr)
@@ -77,6 +78,8 @@ struct ibvt_mr_pf : public ibvt_mr {
 	virtual void init() {
 		EXEC(ibvt_mr::init());
 
+		if (env.skip)
+			return;
 		struct ibv_prefetch_attr attr;
 
 		attr.flags = IBV_EXP_PREFETCH_WRITE_ACCESS;
@@ -223,6 +226,7 @@ struct odp_base : public testing::Test, public ibvt_env {
 
 	virtual void init() {
 		INIT(ctx.init());
+		DO(!(ctx.dev_attr.odp_caps.general_odp_caps & IBV_ODP_SUPPORT));
 		INIT(ctx.init_sysfs());
 		EXEC(ctx.check_debugfs("odp_stats/num_odp_mrs", 0));
 	}
@@ -437,7 +441,11 @@ struct odp_implicit_mw : public odp_implicit {
 #endif
 
 #define ODP_CHK_SUT(len) \
-	this->check_ram("MemAvailable:", len * 3); \
+	this->check_ram("MemFree:", len * 3); \
+	this->mem().reg(0,0,len); \
+	this->mem().src().init(); \
+	this->mem().dst().init(); \
+	this->mem().unreg(); \
 	CHK_SUT(odp);
 
 struct odp_send : public odp_base {

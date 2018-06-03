@@ -137,7 +137,9 @@
 
 #define	ibv_device_attr_ex ibv_exp_device_attr
 #define ibv_query_device_(ctx, attr, attr2) ({ \
-		int ret = ibv_exp_query_device(ctx, attr); \
+		int ret; \
+		(attr)->comp_mask = IBV_EXP_DEVICE_ATTR_RESERVED - 1; \
+		ret = ibv_exp_query_device(ctx, attr); \
 		attr2 = (typeof attr2)(attr); ret ; })
 
 #define IBV_ACCESS_ON_DEMAND		IBV_EXP_ACCESS_ON_DEMAND
@@ -171,10 +173,11 @@
 #define ibv_wc_opcode			ibv_exp_wc_opcode
 #define _wc_opcode			exp_opcode
 #define wc_flags			exp_wc_flags
-
+#define IBV_ODP_SUPPORT_IMPLICIT	IBV_EXP_ODP_SUPPORT_IMPLICIT
 #else
 
-#define ibv_create_cq_attr_ex		 ibv_cq_init_attr_ex
+#define general_odp_caps		general_caps
+#define ibv_create_cq_attr_ex		ibv_cq_init_attr_ex
 
 #define ibv_create_cq_ex_(ctx, attr, n, ch) ({ \
 		(attr)->cqe = n; \
@@ -339,7 +342,7 @@ struct ibvt_env {
 		if (!ram_init)
 			ASSERT_NO_FATAL_FAILURE(init_ram());
 		char *hit = strstr(meminfo, var);
-		ASSERT_TRUE(hit);
+		ASSERT_TRUE(hit) << var;
 		if ((val >> 10) > atoi(hit + strlen(var))) {
 			VERBS_NOTICE("%smeminfo %s is lower than %ld - skipping test\n",
 				     lvl_str, var, val >> 10);
@@ -1269,7 +1272,7 @@ struct ibvt_mw : public ibvt_mr {
 
 	virtual void init() {
 		intptr_t addr;
-		if (mr)
+		if (mr || env.skip)
 			return;
 		if (master.buff) {
 			addr = (intptr_t)master.buff;
@@ -1287,6 +1290,8 @@ struct ibvt_mw : public ibvt_mr {
 		mr_in.comp_mask = 0;
 		SET(mr, ibv_exp_create_mr(&mr_in));
 
+		if (env.skip)
+			return;
 		struct ibv_exp_mem_region mem_reg = {};
 		mem_reg.base_addr = addr;
 		mem_reg.length = size;
