@@ -786,7 +786,7 @@ struct ibvt_mr : public ibvt_obj {
 		VERBS_TRACE("\t\t\t\tfill(%p, %zx, %lx) = %x\n", buff, size, access_flags, mr->lkey);
 	}
 
-	virtual void check(size_t skip = 0, size_t shift = 0, int repeat = 1, int length = 0) {
+	virtual void check(size_t skip = 0, size_t shift = 0, int repeat = 1, size_t length = 0) {
 		if (!length)
 			length = size;
 		for (int n = 0; n < repeat; n++)
