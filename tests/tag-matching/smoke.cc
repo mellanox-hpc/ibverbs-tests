@@ -148,6 +148,7 @@ struct ibvt_srq_tm : public ibvt_srq {
 #if HAVE_DECL_IBV_EXP_CREATE_SRQ_DC_OFFLOAD_PARAMS
 	struct ibv_exp_srq_dc_offload_params dc_op;
 	void init_attr_dc(struct ibv_srq_init_attr_ex &attr) {
+		memset(&dc_op, 0, sizeof(dc_op));
 		dc_op.timeout = 12;
 		dc_op.path_mtu = IBV_MTU_512;
 		dc_op.pkey_index = 0;
