@@ -170,7 +170,7 @@ struct types_3 {
 typedef testing::Types<
 	types_3<ibvt_qp_rc, ibvt_qp_srq<ibvt_qp_rc>, ibvt_cq>,
 	types_3<ibvt_qp_rc, ibvt_qp_srq<ibvt_qp_rc>, ibvt_cq_event>,
-#if HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_DC
 	types_3<ibvt_qp_dc, ibvt_dct, ibvt_cq>,
 	types_3<ibvt_qp_dc, ibvt_dct, ibvt_cq_event>,
 #endif

@@ -1110,6 +1110,7 @@ struct ibvt_qp_ud : public ibvt_qp_rc {
 };
 
 #if HAVE_INFINIBAND_VERBS_EXP_H
+#define HAVE_DC 1
 struct ibvt_dct : public ibvt_obj {
 	struct ibv_dct *dct;
 	ibvt_pd &pd;
@@ -1246,6 +1247,195 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 };
+
+
+#elif HAVE_DECL_MLX5DV_DCTYPE_DCT
+#include <infiniband/mlx5dv.h>
+#define HAVE_DC 1
+
+struct ibvt_dct : public ibvt_obj {
+	struct ibv_qp *dct;
+	ibvt_pd &pd;
+	ibvt_cq &cq;
+	ibvt_srq &srq;
+
+	ibvt_dct(ibvt_env &e, ibvt_pd &p, ibvt_cq &c, ibvt_srq &s) :
+		ibvt_obj(e), dct(NULL), pd(p), cq(c), srq(s) {}
+
+	virtual void init() {
+		struct ibv_qp_attr attr = {};
+		struct ibv_qp_init_attr_ex init_attr = {};
+		struct mlx5dv_qp_init_attr dv_attr = {};
+
+		if (dct)
+			return;
+
+		INIT(pd.init());
+		INIT(cq.init());
+		INIT(srq.init());
+
+		init_attr.pd = pd.pd;
+		init_attr.send_cq = cq.cq;
+		init_attr.recv_cq = cq.cq;
+		init_attr.srq = srq.srq;
+		init_attr.qp_type = IBV_QPT_DRIVER;
+		init_attr.comp_mask = IBV_QP_INIT_ATTR_PD;
+
+		dv_attr.comp_mask		    = MLX5DV_QP_INIT_ATTR_MASK_DC;
+		dv_attr.dc_init_attr.dc_type	    = MLX5DV_DCTYPE_DCT;
+		dv_attr.dc_init_attr.dct_access_key = DC_KEY;
+		SET(dct, mlx5dv_create_qp(pd.ctx.ctx, &init_attr, &dv_attr));
+
+		attr.qp_state	     = IBV_QPS_INIT;
+		attr.port_num	     = pd.ctx.port_num;
+		attr.qp_access_flags = IBV_ACCESS_LOCAL_WRITE |
+				       IBV_ACCESS_REMOTE_READ |
+				       IBV_ACCESS_REMOTE_WRITE;
+
+		DO(ibv_modify_qp(dct, &attr, IBV_QP_STATE |
+					IBV_QP_PKEY_INDEX |
+					IBV_QP_PORT |
+					IBV_QP_ACCESS_FLAGS));
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state		       = IBV_QPS_RTR;
+		attr.path_mtu		       = IBV_MTU_512;
+		attr.min_rnr_timer	       = 2;
+		attr.ah_attr.grh.hop_limit     = 1;
+		attr.ah_attr.port_num	       = pd.ctx.port_num;
+
+		DO(ibv_modify_qp(dct, &attr, IBV_QP_STATE |
+					IBV_QP_MIN_RNR_TIMER |
+					IBV_QP_AV |
+					IBV_QP_PATH_MTU));
+	}
+
+	virtual void connect(ibvt_qp *remote) { }
+
+	virtual ~ibvt_dct() {
+		FREE(ibv_destroy_qp, dct);
+	}
+};
+
+struct ibvt_qp_dc : public ibvt_qp_ud {
+	ibvt_dct* dremote;
+	uint8_t *sq;
+	uint32_t *qp_dbr;
+	void *uar_ptr;
+	int sqi;
+
+	ibvt_qp_dc(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) : ibvt_qp_ud(e, p, c) {}
+
+	virtual void init() {
+		struct ibv_qp_init_attr_ex attr = {};
+		struct mlx5dv_qp_init_attr dv_attr = {};
+		struct mlx5dv_qp dvqp = {};
+		struct mlx5dv_obj dv = {};
+
+		INIT(pd.init());
+		INIT(cq.init());
+
+		ibvt_qp::init_attr(attr);
+		attr.qp_type = IBV_QPT_DRIVER;
+		attr.cap.max_send_wr = 0x40;
+		attr.cap.max_recv_wr = 0;
+		attr.cap.max_recv_sge = 0;
+
+		dv_attr.comp_mask		    = MLX5DV_QP_INIT_ATTR_MASK_DC;
+		dv_attr.dc_init_attr.dc_type	    = MLX5DV_DCTYPE_DCI;
+		dv_attr.dc_init_attr.dct_access_key = DC_KEY;
+		SET(qp, mlx5dv_create_qp(pd.ctx.ctx, &attr, &dv_attr));
+
+		dv.qp.in = qp;
+		dv.qp.out = &dvqp;
+		DO(mlx5dv_init_obj(&dv, MLX5DV_OBJ_QP));
+
+		sq = (uint8_t *)dvqp.sq.buf;
+		qp_dbr = dvqp.dbrec;
+		uar_ptr = dvqp.bf.reg;
+		sqi = 0;
+	}
+
+	virtual void connect(ibvt_dct *remote) {
+		struct ibv_qp_attr attr;
+		long long flags;
+
+		this->dremote = remote;
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state = IBV_QPS_INIT;
+		attr.port_num = pd.ctx.port_num;
+		attr.pkey_index = 0;
+		flags = IBV_QP_STATE |
+			IBV_QP_PKEY_INDEX |
+			IBV_QP_PORT;
+
+		DO(ibv_modify_qp(qp, &attr, flags));
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state = IBV_QPS_RTR;
+		attr.path_mtu = IBV_MTU_512;
+		attr.ah_attr.is_global = 0;
+		flags = IBV_QP_STATE | IBV_QP_PATH_MTU;
+
+		attr.ah_attr.dlid = dremote->pd.ctx.lid;
+		attr.ah_attr.sl = 0;
+		attr.ah_attr.src_path_bits = 0;
+		attr.ah_attr.port_num = dremote->pd.ctx.port_num;
+		SET(ah, ibv_create_ah(pd.pd, &attr.ah_attr));
+		DO(ibv_modify_qp(qp, &attr, flags));
+
+		memset(&attr, 0, sizeof(attr));
+		attr.qp_state = IBV_QPS_RTS;
+		attr.timeout	    = 14;
+		attr.retry_cnt	    = 7;
+		attr.rnr_retry	    = 7;
+		attr.max_rd_atomic  = 1;
+		flags = IBV_QP_STATE | IBV_QP_TIMEOUT |
+			IBV_QP_RETRY_CNT | IBV_QP_SQ_PSN |
+			IBV_QP_RNR_RETRY |
+			IBV_QP_MAX_QP_RD_ATOMIC;
+
+		DO(ibv_modify_qp(qp, &attr, flags));
+	}
+
+	virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode,
+			       int flags = IBV_SEND_SIGNALED) {
+		uint8_t mac[6] = {}, gid[16] = {};
+		uint8_t fm_ce_se = 0, op, ds = 5;
+
+		if (flags == IBV_SEND_SIGNALED)
+			fm_ce_se |= MLX5_WQE_CTRL_CQ_UPDATE;
+		if (opcode == IBV_WR_SEND)
+			op = MLX5_OPCODE_SEND;
+		else
+			FAIL();
+
+		struct mlx5_wqe_ctrl_seg *ctrl = (struct mlx5_wqe_ctrl_seg *)(sq + sqi % 0x40 * MLX5_SEND_WQE_BB);
+		mlx5dv_set_ctrl_seg(ctrl, sqi, op, 0, qp->qp_num, fm_ce_se, ds, 0, 0);
+
+		struct mlx5_wqe_datagram_seg *avseg = (struct mlx5_wqe_datagram_seg *)(ctrl + 1);
+		mlx5dv_set_dgram_seg(avseg, DC_KEY, dremote->dct->qp_num, 1, 0,
+				     dremote->pd.ctx.lid, dremote->pd.ctx.lid,
+				     mac, 0, 1, 0, gid);
+		struct mlx5_wqe_data_seg *dseg = (struct mlx5_wqe_data_seg *)(avseg + 1);
+		mlx5dv_set_data_seg(dseg, sge.length, sge.lkey, (intptr_t)sge.addr);
+
+		sqi += 2;
+		asm volatile("" ::: "memory");
+
+		qp_dbr[MLX5_SND_DBR] = htobe32(sqi & 0xffff);
+		asm volatile("" ::: "memory");
+
+		*(uint64_t *)uar_ptr = *(uint64_t *)ctrl;
+		asm volatile("" ::: "memory");
+	}
+
+	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode, enum ibv_send_flags flags = IBV_SEND_SIGNALED) {
+		FAIL();
+	}
+};
+
 #endif
 
 template <typename QP>
