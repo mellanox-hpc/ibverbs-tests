@@ -170,5 +170,15 @@ if test $(basename ${CC}x) = mpiccx; then
     AC_DEFINE(HAVE_MPICC, 1, [Use mpirun as a launcher])
 fi
 
+AC_CHECK_LIB([mlx5-rdmav2], [mlx5dv_query_device],
+	    [AC_SUBST(LIB_MLX5, [-lmlx5-rdmav2])],[
+AC_CHECK_LIB([mlx5], [mlx5dv_query_device],
+	    [AC_SUBST(LIB_MLX5, [-lmlx5])],
+	    [], [-libverbs])], [-libverbs])
+
+AC_CHECK_DECLS([MLX5DV_DCTYPE_DCT], [], [], [[
+#include <infiniband/mlx5dv.h>
+]])
+
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

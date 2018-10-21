@@ -76,5 +76,7 @@ if SIG_HANDOVER
 ibv_test_SOURCES +=      tests/sig-handover/smoke.cc
 endif
 
+ibv_test_LDFLAGS =      $(LIB_MLX5)
+
 EXTRA_DIST = src/gtest-all.cc
 EXTRA_DIST += autogen.sh
