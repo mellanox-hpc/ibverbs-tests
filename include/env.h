@@ -205,6 +205,15 @@
 #define PAGE 0x10000
 #define UP (1ULL<<46)
 
+#elif __aarch64__
+
+#define PAGE 0x1000
+#define UP (1ULL<<47)
+
+#else
+
+#error Unknown architecture
+
 #endif
 
 #define PAGE_MASK (PAGE - 1)
