@@ -53,7 +53,7 @@
 #endif
 
 #define SZ (512*BBB)
-#define SZD (520*BBB)
+#define SZD(pi_size) ((512+pi_size)*BBB)
 
 #define SZ_p(n) (512*((n)%BBB+1))
 #define SZ_pp(n,from,spare) (from+512*((n)%(BBB-spare-from/512)+1))
@@ -141,8 +141,78 @@ struct ibvt_mr_sig : public ibvt_mr {
 	}
 };
 
-template <typename QP>
-struct sig_test_base : public testing::Test, public ibvt_env {
+struct sig_domain {
+	virtual struct ibv_exp_sig_domain nosig() {
+		struct ibv_exp_sig_domain sd = {};
+
+		sd.sig_type = IBV_EXP_SIG_TYPE_NONE;
+
+		return sd;
+	}
+
+	virtual struct ibv_exp_sig_domain sig() = 0;
+	virtual uint16_t check_mask() = 0;
+};
+
+struct sig_t10dif : public sig_domain {
+	static unsigned pi_size() {
+		return 8;
+	}
+
+	enum {
+		CHECK_REF_TAG	= 0x0f,
+		CHECK_APP_TAG	= 0x30,
+		CHECK_GUARD	= 0xc0,
+	};
+
+	virtual uint16_t check_mask() {
+		return CHECK_APP_TAG | CHECK_GUARD;
+	}
+
+	virtual struct ibv_exp_sig_domain sig() {
+		struct ibv_exp_sig_domain sd = {};
+
+		sd.sig_type = IBV_EXP_SIG_TYPE_T10_DIF;
+		sd.sig.dif.bg_type = IBV_EXP_T10DIF_CRC;
+		sd.sig.dif.pi_interval = 512;
+		sd.sig.dif.bg = 0x1234;
+		sd.sig.dif.app_tag = 0x5678;
+		sd.sig.dif.ref_tag = 0xabcdef90;
+		sd.sig.dif.ref_remap = 1;
+		sd.sig.dif.app_escape = 1;
+		sd.sig.dif.ref_escape = 1;
+		sd.sig.dif.apptag_check_mask = 0xffff;
+
+		return sd;
+	}
+};
+
+struct sig_crc32 : public sig_domain {
+	static unsigned pi_size() {
+		return 4;
+	}
+
+	enum {
+		CHECK_GUARD = 0xff,
+	};
+
+	virtual uint16_t check_mask() {
+		return CHECK_GUARD;
+	}
+
+	virtual struct ibv_exp_sig_domain sig() {
+		struct ibv_exp_sig_domain sd = {};
+
+		sd.sig_type = IBV_EXP_SIG_TYPE_CRC32;
+		sd.sig.crc.pi_interval = 512;
+		sd.sig.crc.bg = 0xffffffff;
+
+		return sd;
+	}
+};
+
+template <typename QP, typename SD>
+struct sig_test_base : public testing::Test, public SD, public ibvt_env {
 	ibvt_ctx ctx;
 	ibvt_pd pd;
 	ibvt_cq cq;
@@ -170,9 +240,9 @@ struct sig_test_base : public testing::Test, public ibvt_env {
 		recv_qp(*this, pd, cq),
 		src_mr(*this, pd, SZ),
 		src2_mr(*this, pd, SZ),
-		mid_mr(*this, pd, SZD),
-		mid2_mr(*this, pd, SZD),
-		mid_mr_x2(*this, pd, SZD * 2),
+		mid_mr(*this, pd, SZD(this->pi_size())),
+		mid2_mr(*this, pd, SZD(this->pi_size())),
+		mid_mr_x2(*this, pd, SZD(this->pi_size()) * 2),
 		dst_mr(*this, pd, SZ),
 		dst_mr_x2(*this, pd, SZ * 2),
 		insert_mr(*this, pd),
@@ -180,37 +250,8 @@ struct sig_test_base : public testing::Test, public ibvt_env {
 		check_mr(*this, pd),
 		strip_mr(*this, pd),
 		strip_mr_x2(*this, pd),
-		mw(mid_mr, 0, SZD, send_qp)
+		mw(mid_mr, 0, SZD(this->pi_size()), send_qp)
 	{ }
-
-	#define CHECK_REF_TAG 0x0f
-	#define CHECK_APP_TAG 0x30
-	#define CHECK_GUARD   0xc0
-
-	virtual struct ibv_exp_sig_domain t10dif() {
-		struct ibv_exp_sig_domain sd = {};
-
-		sd.sig_type = IBV_EXP_SIG_TYPE_T10_DIF;
-		sd.sig.dif.bg_type = IBV_EXP_T10DIF_CRC;
-		sd.sig.dif.pi_interval = 512;
-		sd.sig.dif.bg = 0x1234;
-		sd.sig.dif.app_tag = 0x5678;
-		sd.sig.dif.ref_tag = 0xabcdef90;
-		sd.sig.dif.ref_remap = 1;
-		sd.sig.dif.app_escape = 1;
-		sd.sig.dif.ref_escape = 1;
-		sd.sig.dif.apptag_check_mask = 0xffff;
-
-		return sd;
-	}
-
-	virtual struct ibv_exp_sig_domain nosig() {
-		struct ibv_exp_sig_domain sd = {};
-
-		sd.sig_type = IBV_EXP_SIG_TYPE_NONE;
-
-		return sd;
-	}
 
 	virtual void config(ibvt_mr &sig_mr, struct ibv_sge data,
 			    struct ibv_exp_sig_domain mem,
@@ -219,9 +260,7 @@ struct sig_test_base : public testing::Test, public ibvt_env {
 		struct ibv_send_wr *bad_wr;
 		struct ibv_exp_sig_attrs sig = {};
 
-		//sig.check_mask |= CHECK_REF_TAG;
-		sig.check_mask |= CHECK_APP_TAG;
-		sig.check_mask |= CHECK_GUARD;
+		sig.check_mask = this->check_mask();
 		sig.mem = mem;
 		sig.wire = wire;
 
@@ -301,14 +340,19 @@ struct sig_test_base : public testing::Test, public ibvt_env {
 	}
 };
 
-typedef sig_test_base<ibvt_qp_sig> sig_test;
-typedef sig_test_base<ibvt_qp_sig_pipeline> sig_test_pipeline;
+template <typename SD>
+struct sig_test : public sig_test_base<ibvt_qp_sig, SD> {};
+typedef testing::Types<sig_t10dif, sig_crc32> sig_domain_types;
+TYPED_TEST_CASE(sig_test, sig_domain_types);
 
-TEST_F(sig_test, c0) {
+typedef sig_test<sig_t10dif> sig_test_t10diff;
+typedef sig_test_base<ibvt_qp_sig_pipeline, sig_t10dif> sig_test_pipeline;
+
+TYPED_TEST(sig_test, c0) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->t10dif()));
-	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->t10dif(), this->nosig()));
-	EXEC(send_qp.rdma(this->mid_mr.sge(), this->insert_mr.sge(0,SZD), IBV_WR_RDMA_READ));
+	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->sig()));
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+	EXEC(send_qp.rdma(this->mid_mr.sge(), this->insert_mr.sge(0,SZD(this->pi_size())), IBV_WR_RDMA_READ));
 	EXEC(cq.poll());
 	EXEC(send_qp.rdma(this->dst_mr.sge(), this->strip_mr.sge(0,SZ), IBV_WR_RDMA_READ));
 	EXEC(cq.poll());
@@ -316,11 +360,11 @@ TEST_F(sig_test, c0) {
 	EXEC(dst_mr.check());
 }
 
-TEST_F(sig_test, c1) {
+TYPED_TEST(sig_test, c1) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->t10dif()));
-	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->t10dif(), this->nosig()));
-	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->sig()));
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
 	EXEC(send_qp.rdma(this->strip_mr.sge(0,SZ), this->dst_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
@@ -328,38 +372,38 @@ TEST_F(sig_test, c1) {
 	EXEC(dst_mr.check());
 }
 
-TEST_F(sig_test, c2) {
+TYPED_TEST(sig_test, c2) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->insert_mr, this->mid_mr.sge(), this->t10dif(), this->nosig()));
-	EXEC(config(this->strip_mr, this->dst_mr.sge(), this->nosig(), this->t10dif()));
+	EXEC(config(this->insert_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+	EXEC(config(this->strip_mr, this->dst_mr.sge(), this->nosig(), this->sig()));
 	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZ), this->src_mr.sge(), IBV_WR_RDMA_READ));
 	EXEC(cq.poll());
-	EXEC(send_qp.rdma(this->strip_mr.sge(0,SZD), this->mid_mr.sge(), IBV_WR_RDMA_READ));
+	EXEC(send_qp.rdma(this->strip_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_READ));
 	EXEC(cq.poll());
 	EXEC(mr_status(this->strip_mr, 0));
 	EXEC(dst_mr.check());
 }
 
-TEST_F(sig_test, c3) {
+TYPED_TEST(sig_test, c3) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->insert_mr, this->mid_mr.sge(), this->t10dif(), this->nosig()));
-	EXEC(config(this->strip_mr, this->dst_mr.sge(), this->nosig(), this->t10dif()));
+	EXEC(config(this->insert_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+	EXEC(config(this->strip_mr, this->dst_mr.sge(), this->nosig(), this->sig()));
 	EXEC(send_qp.rdma(this->src_mr.sge(), this->insert_mr.sge(0,SZ), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
-	EXEC(send_qp.rdma(this->mid_mr.sge(), this->strip_mr.sge(0,SZD), IBV_WR_RDMA_WRITE));
+	EXEC(send_qp.rdma(this->mid_mr.sge(), this->strip_mr.sge(0,SZD(this->pi_size())), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
 	EXEC(mr_status(this->strip_mr, 0));
 	EXEC(dst_mr.check());
 }
 
-TEST_F(sig_test, c4) {
+TYPED_TEST(sig_test, c4) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->t10dif()));
-	EXEC(config(this->check_mr, this->mid_mr.sge(), this->t10dif(), this->t10dif()));
-	EXEC(config(this->strip_mr, this->mid2_mr.sge(), this->t10dif(), this->nosig()));
-	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->sig()));
+	EXEC(config(this->check_mr, this->mid_mr.sge(), this->sig(), this->sig()));
+	EXEC(config(this->strip_mr, this->mid2_mr.sge(), this->sig(), this->nosig()));
+	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
-	EXEC(send_qp.rdma(this->check_mr.sge(0,SZD), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(send_qp.rdma(this->check_mr.sge(0,SZD(this->pi_size())), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
 	EXEC(send_qp.rdma(this->strip_mr.sge(0,SZ), this->dst_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
@@ -367,17 +411,17 @@ TEST_F(sig_test, c4) {
 	EXEC(dst_mr.check());
 }
 
-TEST_F(sig_test, r0) {
+TYPED_TEST(sig_test, r0) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->t10dif()));
-	EXEC(config(this->check_mr, this->mid_mr.sge(), this->t10dif(), this->t10dif()));
-	struct ibv_exp_sig_domain sd = this->t10dif();
+	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->sig()));
+	EXEC(config(this->check_mr, this->mid_mr.sge(), this->sig(), this->sig()));
+	struct ibv_exp_sig_domain sd = this->sig();
 	sd.sig.dif.ref_remap = 0;
 	EXEC(config(this->strip_mr, this->mid2_mr.sge(), sd, this->nosig()));
 
-	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
-	EXEC(send_qp.rdma(this->check_mr.sge(0,SZD), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(send_qp.rdma(this->check_mr.sge(0,SZD(this->pi_size())), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
 
 	for (long i = 0; i < 10; i++) {
@@ -388,18 +432,18 @@ TEST_F(sig_test, r0) {
 	}
 }
 
-TEST_F(sig_test, r1) {
+TYPED_TEST(sig_test, r1) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->t10dif()));
-	EXEC(config(this->check_mr, this->mid_mr.sge(), this->t10dif(), this->t10dif()));
+	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->sig()));
+	EXEC(config(this->check_mr, this->mid_mr.sge(), this->sig(), this->sig()));
 
-	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
-	EXEC(send_qp.rdma(this->check_mr.sge(0,SZD), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(send_qp.rdma(this->check_mr.sge(0,SZD(this->pi_size())), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
 
 	for (long i = 0; i < 100; i++) {
-		EXEC(config(this->strip_mr, this->mid2_mr.sge(), this->t10dif(), this->nosig()));
+		EXEC(config(this->strip_mr, this->mid2_mr.sge(), this->sig(), this->nosig()));
 		EXEC(send_qp.rdma(this->strip_mr.sge(0,SZ), this->dst_mr.sge(), IBV_WR_RDMA_WRITE));
 		EXEC(cq.poll());
 		EXEC(mr_status(this->strip_mr, 0));
@@ -409,18 +453,18 @@ TEST_F(sig_test, r1) {
 	getchar();
 }
 
-TEST_F(sig_test, r2) {
+TYPED_TEST(sig_test, r2) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->t10dif()));
-	EXEC(config(this->check_mr, this->mid_mr.sge(), this->t10dif(), this->t10dif()));
+	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->sig()));
+	EXEC(config(this->check_mr, this->mid_mr.sge(), this->sig(), this->sig()));
 
-	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
-	EXEC(send_qp.rdma(this->check_mr.sge(0,SZD), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(send_qp.rdma(this->check_mr.sge(0,SZD(this->pi_size())), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
 
 	for (long i = 0; i < 100; i++) {
-		EXEC(config(this->strip_mr, this->mid2_mr.sge(), this->t10dif(), this->nosig()));
+		EXEC(config(this->strip_mr, this->mid2_mr.sge(), this->sig(), this->nosig()));
 		EXEC(send_qp.rdma(this->strip_mr.sge(0,SZ_p(i)), this->dst_mr.sge(), IBV_WR_RDMA_WRITE));
 		EXEC(cq.poll());
 		EXEC(mr_status(this->strip_mr, 0));
@@ -430,22 +474,22 @@ TEST_F(sig_test, r2) {
 	getchar();
 }
 
-TEST_F(sig_test, r3) {
+TYPED_TEST(sig_test, r3) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->t10dif()));
-	EXEC(config(this->check_mr, this->mid_mr.sge(), this->t10dif(), this->t10dif()));
+	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->sig()));
+	EXEC(config(this->check_mr, this->mid_mr.sge(), this->sig(), this->sig()));
 
-	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
-	EXEC(send_qp.rdma(this->check_mr.sge(0,SZD), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(send_qp.rdma(this->check_mr.sge(0,SZD(this->pi_size())), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
 
 	for (long i = 0; i < 100; i++) {
 		int j = SZ_pp(i,0,3);
 		int k = SZ_pp(i,j,2);
 		int l = SZ_pp(i,k,1);
-		EXEC(config(this->strip_mr, this->mid2_mr.sge(), this->t10dif(), this->nosig()));
-		EXEC(config(this->strip_mr_x2, this->mid2_mr.sge(), this->t10dif(), this->nosig()));
+		EXEC(config(this->strip_mr, this->mid2_mr.sge(), this->sig(), this->nosig()));
+		EXEC(config(this->strip_mr_x2, this->mid2_mr.sge(), this->sig(), this->nosig()));
 		EXEC(send_qp.rdma(this->strip_mr.sge(0,j), this->dst_mr.sge(), IBV_WR_RDMA_WRITE, (enum ibv_send_flags)0));
 		EXEC(send_qp.rdma(this->strip_mr_x2.sge(j,k-j), this->dst_mr.sge(j,0), IBV_WR_RDMA_WRITE, (enum ibv_send_flags)0));
 		EXEC(send_qp.rdma(this->strip_mr.sge(k,l-k), this->dst_mr.sge(k,0), IBV_WR_RDMA_WRITE, (enum ibv_send_flags)0));
@@ -460,9 +504,9 @@ TEST_F(sig_test, r3) {
 	getchar();
 }
 
-TEST_F(sig_test, r4) {
+TYPED_TEST(sig_test, r4) {
 	CHK_SUT(sig_handover);
-	struct ibv_exp_sig_domain sd = this->t10dif();
+	struct ibv_exp_sig_domain sd = this->sig();
 	enum ibv_send_flags nof = (enum ibv_send_flags)0;
 
 	for (long i = 0; i < 100; i++) {
@@ -472,7 +516,7 @@ TEST_F(sig_test, r4) {
 		sd.sig.dif.ref_tag = 0x28f5b5d * i;
 
 		EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), sd));
-		EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
+		EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));
 		EXEC(cq.poll());
 
 		EXEC(config(this->strip_mr, this->mw.sge(), sd, this->nosig()));
@@ -494,15 +538,15 @@ TEST_F(sig_test, r4) {
 	getchar();
 }
 
-TEST_F(sig_test, c6) {
+TYPED_TEST(sig_test, c6) {
 	CHK_SUT(sig_handover);
-	struct ibv_exp_sig_domain sd = this->t10dif();
+	struct ibv_exp_sig_domain sd = this->sig();
 	sd.sig.dif.ref_remap = 0;
-	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->t10dif()));
-	EXEC(config(this->insert2_mr, this->src2_mr.sge(), this->nosig(), this->t10dif()));
+	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->sig()));
+	EXEC(config(this->insert2_mr, this->src2_mr.sge(), this->nosig(), this->sig()));
 	EXEC(config(this->strip_mr_x2, this->mid_mr_x2.sge(), sd, this->nosig()));
-	EXEC(send_qp.rdma2(this->insert_mr.sge(0,SZD),
-			   this->insert2_mr.sge(0,SZD),
+	EXEC(send_qp.rdma2(this->insert_mr.sge(0,SZD(this->pi_size())),
+			   this->insert2_mr.sge(0,SZD(this->pi_size())),
 			   this->mid_mr_x2.sge(),
 			   IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
@@ -514,49 +558,49 @@ TEST_F(sig_test, c6) {
 	EXEC(dst_mr_x2.check());
 }
 
-TEST_F(sig_test, e0) {
+TYPED_TEST(sig_test, e0) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->t10dif(), this->nosig()));
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
 	EXEC(send_qp.rdma(this->dst_mr.sge(), this->strip_mr.sge(0,SZ), IBV_WR_RDMA_READ));
 	EXEC(cq.poll());
 	EXEC(mr_status(this->strip_mr, 1));
 }
 
-TEST_F(sig_test, e1) {
+TYPED_TEST(sig_test, e1) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->t10dif(), this->nosig()));
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
 	EXEC(send_qp.rdma(this->strip_mr.sge(0,SZ), this->dst_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
 	EXEC(mr_status(this->strip_mr, 1));
 }
 
-TEST_F(sig_test, e2) {
+TYPED_TEST(sig_test, e2) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->strip_mr, this->dst_mr.sge(), this->nosig(), this->t10dif()));
-	EXEC(send_qp.rdma(this->strip_mr.sge(0,SZD), this->mid_mr.sge(), IBV_WR_RDMA_READ));
+	EXEC(config(this->strip_mr, this->dst_mr.sge(), this->nosig(), this->sig()));
+	EXEC(send_qp.rdma(this->strip_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_READ));
 	EXEC(cq.poll());
 	EXEC(mr_status(this->strip_mr, 1));
 }
 
-TEST_F(sig_test, e3) {
+TYPED_TEST(sig_test, e3) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->strip_mr, this->dst_mr.sge(), this->nosig(), this->t10dif()));
-	EXEC(send_qp.rdma(this->mid_mr.sge(), this->strip_mr.sge(0,SZD), IBV_WR_RDMA_WRITE));
+	EXEC(config(this->strip_mr, this->dst_mr.sge(), this->nosig(), this->sig()));
+	EXEC(send_qp.rdma(this->mid_mr.sge(), this->strip_mr.sge(0,SZD(this->pi_size())), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
 	EXEC(mr_status(this->strip_mr, 1));
 }
 
-TEST_F(sig_test, e4) {
+TYPED_TEST(sig_test, e4) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->check_mr, this->mid_mr.sge(), this->t10dif(), this->t10dif()));
-	EXEC(send_qp.rdma(this->check_mr.sge(0,SZD), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
+	EXEC(config(this->check_mr, this->mid_mr.sge(), this->sig(), this->sig()));
+	EXEC(send_qp.rdma(this->check_mr.sge(0,SZD(this->pi_size())), this->mid2_mr.sge(), IBV_WR_RDMA_WRITE));
 	EXEC(cq.poll());
 	EXEC(mr_status(this->check_mr, 1));
 }
 
 TEST_F(sig_test_pipeline, p0) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->t10dif(), this->nosig()));
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
 	EXEC(recv_qp.recv(this->dst_mr.sge()));
 	EXEC(recv_qp.recv(this->dst_mr.sge()));
 	EXEC(send_qp.send_2wr(this->strip_mr.sge(0,SZ), this->src_mr.sge(0,SZ)));
@@ -568,7 +612,7 @@ TEST_F(sig_test_pipeline, p0) {
 
 TEST_F(sig_test_pipeline, p1) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->t10dif(), this->nosig()));
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
 	EXEC(recv_qp.recv(this->dst_mr.sge()));
 	EXEC(recv_qp.recv(this->dst_mr.sge()));
 	EXEC(send_qp.send_2wr(this->strip_mr.sge(0,SZ), this->src_mr.sge()));
@@ -578,7 +622,7 @@ TEST_F(sig_test_pipeline, p1) {
 
 TEST_F(sig_test_pipeline, p2) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->t10dif(), this->nosig()));
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
 	EXEC(recv_qp.recv(this->dst_mr.sge()));
 	EXEC(recv_qp.recv(this->dst_mr.sge()));
 	struct ibv_sge sge[4];
@@ -595,7 +639,7 @@ TEST_F(sig_test_pipeline, p2) {
 TEST_F(sig_test_pipeline, p3) {
 	CHK_SUT(sig_handover);
 	for (long i = 0; i < 100; i++) {
-		EXEC(config(this->strip_mr, this->mid_mr.sge(), this->t10dif(), this->nosig()));
+		EXEC(config(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
 		EXEC(recv_qp.recv(this->dst_mr.sge()));
 		EXEC(recv_qp.recv(this->dst_mr.sge()));
 		struct ibv_sge sge[4];
@@ -612,7 +656,7 @@ TEST_F(sig_test_pipeline, p3) {
 
 TEST_F(sig_test_pipeline, p4) {
 	CHK_SUT(sig_handover);
-	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->t10dif(), this->nosig()));
+	EXEC(config(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
 	for (long i = 0; i < 100; i++) {
 		EXEC(recv_qp.recv(this->dst_mr.sge()));
 		EXEC(recv_qp.recv(this->dst_mr.sge()));
