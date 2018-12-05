@@ -386,8 +386,10 @@ struct ibvt_ctx : public ibvt_obj {
 	struct ibv_device *dev;
 	struct ibv_device_attr *dev_attr_orig;
 	struct ibv_device_attr_ex dev_attr;
+	struct ibv_port_attr port_attr;
 	uint8_t port_num;
 	uint16_t lid;
+	union ibv_gid gid;
 	char *pdev_name;
 	char *vdev_name;
 
@@ -495,7 +497,7 @@ struct ibvt_ctx : public ibvt_obj {
 		pdev_name(NULL),
 		vdev_name(NULL)	{}
 
-	virtual bool check_port(struct ibv_device *dev, struct ibv_port_attr &port_attr ) {
+	virtual bool check_port(struct ibv_device *dev) {
 		if (getenv("IBV_DEV") && strcmp(ibv_get_device_name(dev), getenv("IBV_DEV")))
 			return false;
 		if (port_attr.state == IBV_PORT_ACTIVE)
@@ -503,38 +505,45 @@ struct ibvt_ctx : public ibvt_obj {
 		return false;
 	}
 
+
+	int grh_required() {
+		return port_attr.link_layer == IBV_LINK_LAYER_ETHERNET;
+	}
+
 	virtual void init() {
-		struct ibv_port_attr port_attr;
 		struct ibv_device **dev_list = NULL;
 		int num_devices;
 		if (ctx)
 			return;
 
 		dev_list = ibv_get_device_list(&num_devices);
-		for (int dev = 0; dev < num_devices; dev++) {
-			if (other && other->dev == dev_list[dev])
+		for (int devn = 0; devn < num_devices; devn++) {
+			if (other && other->dev == dev_list[devn])
 				continue;
-			SET(ctx, ibv_open_device(dev_list[dev]));
+			SET(ctx, ibv_open_device(dev_list[devn]));
 			memset(&dev_attr, 0, sizeof(dev_attr));
 			DO(ibv_query_device_(ctx, &dev_attr, dev_attr_orig));
 			for (int port = 1; port <= dev_attr_orig->phys_port_cnt; port++) {
 				DO(ibv_query_port(ctx, port, &port_attr));
-				if (!check_port(dev_list[dev], port_attr))
+				if (!check_port(dev_list[devn]))
 					continue;
 
 				port_num = port;
 				lid = port_attr.lid;
+				DO(ibv_query_gid(ctx, port_num, 0, &gid));
 				break;
 			}
 			if (port_num) {
-				this->dev = dev_list[dev];
+				dev = dev_list[devn];
+				VERBS_INFO("dev %s\n", ibv_get_device_name(dev));
 				break;
 			} else {
 				DO(ibv_close_device(ctx));
 				ctx = NULL;
 			}
 		}
-		ibv_free_device_list(dev_list);
+		if (dev_list)
+			ibv_free_device_list(dev_list);
 		if (!port_num) {
 			VERBS_NOTICE("suitable port not found\n");
 			env.skip = 1;
@@ -1024,7 +1033,14 @@ struct ibvt_qp_rc : public ibvt_qp {
 		attr.rq_psn = 0;
 		attr.max_dest_rd_atomic = 1;
 		attr.min_rnr_timer = 12;
-		attr.ah_attr.is_global = 0;
+		if (!pd.ctx.grh_required()) {
+			attr.ah_attr.is_global = 0;
+		} else {
+			attr.ah_attr.is_global = 1;
+			attr.ah_attr.grh.hop_limit = 1;
+			attr.ah_attr.grh.dgid = remote->pd.ctx.gid;
+			attr.ah_attr.grh.sgid_index = 0;
+		}
 		attr.ah_attr.dlid = remote->pd.ctx.lid;
 		attr.ah_attr.sl = 0;
 		attr.ah_attr.src_path_bits = 0;
@@ -1051,6 +1067,10 @@ struct ibvt_qp_ud : public ibvt_qp_rc {
 	struct ibv_ah *ah;
 
 	ibvt_qp_ud(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) : ibvt_qp_rc(e, p, c) {}
+
+	virtual ~ibvt_qp_ud() {
+		FREE(ibv_destroy_ah, ah);
+	}
 
 	virtual void init_attr(struct ibv_qp_init_attr_ex &attr) {
 		ibvt_qp::init_attr(attr);
@@ -1100,7 +1120,15 @@ struct ibvt_qp_ud : public ibvt_qp_rc {
 		flags = IBV_QP_STATE;
 		DO(ibv_modify_qp(qp, &attr, flags));
 
-		attr.ah_attr.is_global = 0;
+		if (!pd.ctx.grh_required()) {
+			attr.ah_attr.is_global = 0;
+		} else {
+			attr.ah_attr.is_global = 1;
+			attr.ah_attr.grh.hop_limit = 1;
+			attr.ah_attr.grh.dgid = remote->pd.ctx.gid;
+			attr.ah_attr.grh.sgid_index = 0;
+		}
+
 		attr.ah_attr.dlid = remote->pd.ctx.lid;
 		attr.ah_attr.sl = 0;
 		attr.ah_attr.src_path_bits = 0;
