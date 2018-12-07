@@ -450,7 +450,6 @@ TYPED_TEST(sig_test, r1) {
 		EXEC(dst_mr.check());
 		EXEC(linv(this->strip_mr));
 	}
-	getchar();
 }
 
 TYPED_TEST(sig_test, r2) {
@@ -471,7 +470,6 @@ TYPED_TEST(sig_test, r2) {
 		EXEC(dst_mr.check(0,0,1,SZ_p(i)));
 		EXEC(linv(this->strip_mr));
 	}
-	getchar();
 }
 
 TYPED_TEST(sig_test, r3) {
@@ -501,7 +499,6 @@ TYPED_TEST(sig_test, r3) {
 		EXEC(linv(this->strip_mr));
 		EXEC(linv(this->strip_mr_x2));
 	}
-	getchar();
 }
 
 TYPED_TEST(sig_test, r4) {
@@ -535,7 +532,6 @@ TYPED_TEST(sig_test, r4) {
 		EXEC(linv(this->strip_mr));
 		EXEC(linv(this->strip_mr_x2));
 	}
-	getchar();
 }
 
 TYPED_TEST(sig_test, c6) {
@@ -662,7 +658,4 @@ TEST_F(sig_test_pipeline, p4) {
 		EXEC(recv_qp.recv(this->dst_mr.sge()));
 		EXEC(send_qp.send_2wr(this->strip_mr.sge(0,SZ), this->src_mr.sge()));
 	}
-	getchar();
 }
-
-#include"tests/sig-handover/pillar.cc"
