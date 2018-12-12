@@ -179,10 +179,19 @@
 #define general_odp_caps		general_caps
 #define ibv_create_cq_attr_ex		ibv_cq_init_attr_ex
 
+#if HAVE_DECL_IBV_CREATE_CQ_ATTR_IGNORE_OVERRUN
+#  define SET_IGNORE_OVERRUN(attr) \
+		(attr)->comp_mask = IBV_CQ_INIT_ATTR_MASK_FLAGS; \
+		(attr)->flags = IBV_CREATE_CQ_ATTR_IGNORE_OVERRUN;
+#else
+#  define SET_IGNORE_OVERRUN(attr)
+#endif
+
 #define ibv_create_cq_ex_(ctx, attr, n, ch) ({ \
 		(attr)->cqe = n; \
 		(attr)->channel = ch; \
 		(attr)->wc_flags = IBV_CREATE_CQ_SUP_WC_FLAGS; \
+		SET_IGNORE_OVERRUN(attr) \
 		ibv_cq_ex_to_cq(ibv_create_cq_ex(ctx, attr)); })
 
 #define ibv_query_device_(ctx, attr, attr2) ({ \

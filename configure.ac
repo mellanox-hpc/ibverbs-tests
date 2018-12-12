@@ -176,6 +176,10 @@ AC_CHECK_LIB([mlx5], [mlx5dv_query_device],
 	    [AC_SUBST(LIB_MLX5, [-lmlx5])],
 	    [], [-libverbs])], [-libverbs])
 
+AC_CHECK_DECLS([IBV_CREATE_CQ_ATTR_IGNORE_OVERRUN], [], [], [[
+#include <infiniband/verbs.h>
+]])
+
 AC_CHECK_DECLS([MLX5DV_DCTYPE_DCT], [], [], [[
 #include <infiniband/mlx5dv.h>
 ]])
