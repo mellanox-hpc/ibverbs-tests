@@ -136,9 +136,17 @@
 		ibv_exp_create_cq(ctx, n, NULL, ch, 0, attr)
 
 #define	ibv_device_attr_ex ibv_exp_device_attr
+#if HAVE_DECL_IBV_EXP_DEVICE_ATTR_RESERVED_2
+#  define SET_DEVICE_ATTR_COMP_MASK(attr) \
+		(attr)->comp_mask = 0xffffffff; \
+		(attr)->comp_mask_2 = IBV_EXP_DEVICE_ATTR_RESERVED_2 - 1;
+#else
+#  define SET_DEVICE_ATTR_COMP_MASK(attr) \
+		(attr)->comp_mask = IBV_EXP_DEVICE_ATTR_RESERVED - 1;
+#endif
 #define ibv_query_device_(ctx, attr, attr2) ({ \
 		int ret; \
-		(attr)->comp_mask = IBV_EXP_DEVICE_ATTR_RESERVED - 1; \
+		SET_DEVICE_ATTR_COMP_MASK(attr) \
 		ret = ibv_exp_query_device(ctx, attr); \
 		attr2 = (typeof attr2)(attr); ret ; })
 

@@ -180,6 +180,10 @@ AC_CHECK_DECLS([IBV_CREATE_CQ_ATTR_IGNORE_OVERRUN], [], [], [[
 #include <infiniband/verbs.h>
 ]])
 
+AC_CHECK_DECLS([IBV_EXP_DEVICE_ATTR_RESERVED_2], [], [], [[
+#include <infiniband/verbs_exp.h>
+]])
+
 AC_CHECK_DECLS([MLX5DV_DCTYPE_DCT], [], [], [[
 #include <infiniband/mlx5dv.h>
 ]])
