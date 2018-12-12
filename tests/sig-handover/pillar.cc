@@ -309,7 +309,7 @@ mellanox_single_rdma(void)
     assert(rc == 0);
 }
 
-TEST_F(sig_test_t10diff, ext0) {
+TEST_F(sig_test_t10dif, ext0) {
 	CHK_SUT(sig_handover);
 	EXEC(config(this->insert_mr, this->src_mr.sge(), this->nosig(), this->sig()));
 	EXEC(send_qp.rdma(this->insert_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_WRITE));

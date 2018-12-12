@@ -187,6 +187,7 @@ struct sig_t10dif : public sig_domain {
 	}
 };
 
+#if HAVE_DECL_IBV_EXP_SIG_TYPE_CRC32
 struct sig_crc32 : public sig_domain {
 	static unsigned pi_size() {
 		return 4;
@@ -210,6 +211,7 @@ struct sig_crc32 : public sig_domain {
 		return sd;
 	}
 };
+#endif
 
 template <typename QP, typename SD>
 struct sig_test_base : public testing::Test, public SD, public ibvt_env {
@@ -359,10 +361,15 @@ struct sig_test_base : public testing::Test, public SD, public ibvt_env {
 
 template <typename SD>
 struct sig_test : public sig_test_base<ibvt_qp_sig, SD> {};
-typedef testing::Types<sig_t10dif, sig_crc32> sig_domain_types;
+typedef testing::Types<
+#if HAVE_DECL_IBV_EXP_SIG_TYPE_CRC32
+	sig_crc32,
+#endif
+	sig_t10dif
+> sig_domain_types;
 TYPED_TEST_CASE(sig_test, sig_domain_types);
 
-typedef sig_test<sig_t10dif> sig_test_t10diff;
+typedef sig_test<sig_t10dif> sig_test_t10dif;
 typedef sig_test_base<ibvt_qp_sig_pipeline, sig_t10dif> sig_test_pipeline;
 
 TYPED_TEST(sig_test, c0) {
