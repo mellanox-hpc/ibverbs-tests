@@ -130,6 +130,11 @@ AC_CHECK_DECLS([ibv_exp_prefetch_mr], [], [], [
 #include <infiniband/verbs_exp.h>
 ])
 
+AC_CHECK_DECLS([mlx5dv_devx_general_cmd], [devx=1], [], [
+#include <infiniband/mlx5dv.h>
+])
+AM_CONDITIONAL([DEVX], [test -n "$devx"])
+
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
 
@@ -189,7 +194,11 @@ AC_CHECK_DECLS([IBV_EXP_DEVICE_ATTR_RESERVED_2], [], [], [[
 #include <infiniband/verbs_exp.h>
 ]])
 
-AC_CHECK_DECLS([MLX5DV_DCTYPE_DCT], [], [], [[
+AC_CHECK_HEADERS([infiniband/mlx5dv.h])
+AC_CHECK_DECLS([
+	mlx5dv_init_obj,
+	MLX5DV_DCTYPE_DCT,
+	MLX5DV_CONTEXT_FLAGS_DEVX], [], [], [[
 #include <infiniband/mlx5dv.h>
 ]])
 

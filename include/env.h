@@ -209,7 +209,15 @@
 #define _wr_opcode			opcode
 #define _wr_send_flags			send_flags
 #define _wc_opcode			opcode
+//#define IBV_ODP_SUPPORT_IMPLICIT	2   pending kernel fix
+#define IBV_ODP_SUPPORT_IMPLICIT	0
 
+#endif
+
+#if HAVE_INFINIBAND_MLX5DV_H
+extern "C" {
+#include <infiniband/mlx5dv.h>
+}
 #endif
 
 #ifdef __x86_64__
@@ -268,23 +276,23 @@
 	} while(0)
 
 #define DO(x) do { \
-		VERBS_TRACE("%3d.%p: doing\t%s" #x "\n", __LINE__, this, env.lvl_str); \
+		VERBS_TRACE("%3d.%p: doing\t%s" #x "\n", __LINE__, this, this->env.lvl_str); \
 		if (this->env.run) \
 			ASSERT_EQ(0, x) << "errno: " << errno; \
 		else if (x) { \
-			VERBS_NOTICE("%3d.%p: failed\t%s" #x " - skipping test (errno %d)\n", __LINE__, this, env.lvl_str, errno); \
+			VERBS_NOTICE("%3d.%p: failed\t%s" #x " - skipping test (errno %d)\n", __LINE__, this, this->env.lvl_str, errno); \
 			this->env.skip = 1; \
 			return; \
 		} \
 	} while(0)
 
 #define SET(x,y) do { \
-		VERBS_TRACE("%3d.%p: doing\t%s" #y "\n", __LINE__, this, env.lvl_str); \
+		VERBS_TRACE("%3d.%p: doing\t%s" #y "\n", __LINE__, this, this->env.lvl_str); \
 		x=y; \
 		if (this->env.run) \
 			ASSERT_TRUE(x) << #y << " errno: " << errno; \
 		else if (!x) { \
-			VERBS_NOTICE("%3d.%p: failed\t%s" #y " - skipping test (errno %d)\n", __LINE__, this, env.lvl_str, errno); \
+			VERBS_NOTICE("%3d.%p: failed\t%s" #y " - skipping test (errno %d)\n", __LINE__, this, this->env.lvl_str, errno); \
 			this->env.skip = 1; \
 			return; \
 		} \
@@ -547,6 +555,10 @@ struct ibvt_ctx : public ibvt_obj {
 		return port_attr.link_layer == IBV_LINK_LAYER_ETHERNET;
 	}
 
+	virtual ibv_context *open_device(struct ibv_device *ibdev) {
+		return ibv_open_device(ibdev);
+	}
+
 	virtual void init() {
 		struct ibv_device **dev_list = NULL;
 		int num_devices;
@@ -557,7 +569,7 @@ struct ibvt_ctx : public ibvt_obj {
 		for (int devn = 0; devn < num_devices; devn++) {
 			if (other && other->dev == dev_list[devn])
 				continue;
-			SET(ctx, ibv_open_device(dev_list[devn]));
+			SET(ctx, open_device(dev_list[devn]));
 			memset(&dev_attr, 0, sizeof(dev_attr));
 			DO(ibv_query_device_(ctx, &dev_attr, dev_attr_orig));
 			for (int port = 1; port <= dev_attr_orig->phys_port_cnt; port++) {
@@ -591,6 +603,23 @@ struct ibvt_ctx : public ibvt_obj {
 		FREE(ibv_close_device, ctx);
 	}
 };
+
+#if HAVE_DECL_MLX5DV_CONTEXT_FLAGS_DEVX
+struct ibvt_ctx_devx : public ibvt_ctx {
+	ibvt_ctx_devx(ibvt_env &e, ibvt_ctx *o = NULL) :
+		ibvt_ctx(e, o) {}
+
+	virtual ibv_context *open_device(struct ibv_device *ibdev) {
+		struct ibv_context	       *res;
+		struct mlx5dv_context_attr      dv_attr = {};
+
+		dv_attr.flags |= MLX5DV_CONTEXT_FLAGS_DEVX;
+		res = mlx5dv_open_device(ibdev, &dv_attr);
+
+		return res;
+	}
+};
+#endif
 
 struct ibvt_pd : public ibvt_obj {
 	struct ibv_pd *pd;
@@ -774,27 +803,18 @@ struct ibvt_cq_event : public ibvt_cq {
 	}
 };
 
-struct ibvt_mr : public ibvt_obj {
-	struct ibv_mr *mr;
-	ibvt_pd &pd;
+struct ibvt_abstract_mr : public ibvt_obj {
 	size_t size;
 	intptr_t addr;
-	long access_flags;
 	char *buff;
 
 	char *mem;
 	size_t mem_size;
 
-	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a = 0,
-		long af = IBV_ACCESS_LOCAL_WRITE |
-			  IBV_ACCESS_REMOTE_READ |
-			  IBV_ACCESS_REMOTE_WRITE) :
+	ibvt_abstract_mr(ibvt_env &e, size_t s, intptr_t a) :
 		ibvt_obj(e),
-		mr(NULL),
-		pd(p),
 		size(s),
 		addr(a),
-		access_flags(af),
 		buff(NULL),
 		mem(NULL) {}
 
@@ -819,26 +839,17 @@ struct ibvt_mr : public ibvt_obj {
 		buff = addr ? (char*)addr : mem;
 	}
 
-	virtual void init() {
-		if (mr)
-			return;
-		EXEC(pd.init());
-		EXEC(init_mmap());
-		SET(mr, ibv_reg_mr(pd.pd, buff, size, access_flags));
-		VERBS_TRACE("\t\t\t\tibv_reg_mr(pd, %p, %zx, %lx) = %x\n", buff, size, access_flags, mr->lkey);
-	}
-
-	virtual ~ibvt_mr() {
-		FREE(ibv_dereg_mr, mr);
+	virtual ~ibvt_abstract_mr() {
 		if (mem && mem != MAP_FAILED)
 			munmap(mem, mem_size);
 	}
+
+	virtual uint32_t lkey() = 0;
 
 	virtual void fill() {
 		EXEC(init());
 		for (size_t i = 0; i < size; i++)
 			buff[i] = i & 0xff;
-		VERBS_TRACE("\t\t\t\tfill(%p, %zx, %lx) = %x\n", buff, size, access_flags, mr->lkey);
 	}
 
 	virtual void check(size_t skip = 0, size_t shift = 0, int repeat = 1, size_t length = 0) {
@@ -862,12 +873,41 @@ struct ibvt_mr : public ibvt_obj {
 		memset(&ret, 0, sizeof(ret));
 		ret.addr = (intptr_t)buff + start;
 		ret.length = length;
-		ret.lkey = mr->lkey;
+		ret.lkey = lkey();
 
 		return ret;
 	}
 
 	virtual struct ibv_sge sge() { return sge(0, size); }
+};
+
+struct ibvt_mr : public ibvt_abstract_mr {
+	ibvt_pd &pd;
+	long access_flags;
+	struct ibv_mr *mr;
+
+	ibvt_mr(ibvt_env &e, ibvt_pd &p, size_t s, intptr_t a = 0,
+		long af = IBV_ACCESS_LOCAL_WRITE |
+			  IBV_ACCESS_REMOTE_READ |
+			  IBV_ACCESS_REMOTE_WRITE) :
+		ibvt_abstract_mr(e, s, a), pd(p), access_flags(af), mr(NULL) {}
+
+	virtual void init() {
+		if (mr)
+			return;
+		EXEC(pd.init());
+		EXEC(init_mmap());
+		SET(mr, ibv_reg_mr(pd.pd, buff, size, access_flags));
+		VERBS_TRACE("\t\t\t\tibv_reg_mr(pd, %p, %zx, %lx) = %x\n", buff, size, access_flags, mr->lkey);
+	}
+
+	virtual uint32_t lkey() {
+		return mr->lkey;
+	}
+
+	virtual ~ibvt_mr() {
+		FREE(ibv_dereg_mr, mr);
+	}
 };
 
 struct ibvt_srq : public ibvt_obj {
@@ -933,7 +973,7 @@ struct ibvt_qp : public ibvt_obj {
 	ibvt_pd &pd;
 	ibvt_cq &cq;
 
-	ibvt_qp(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) : ibvt_obj(e), qp(NULL), pd(p), cq(c) {}
+		ibvt_qp(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) : ibvt_obj(e), qp(NULL), pd(p), cq(c) {}
 
 	virtual ~ibvt_qp() {
 		FREE(ibv_destroy_qp, qp);
@@ -957,7 +997,53 @@ struct ibvt_qp : public ibvt_obj {
 		INIT(cq.init());
 		init_attr(attr);
 		SET(qp, ibv_create_qp_ex(pd.ctx.ctx, &attr));
+		INIT(init_dv());
 	}
+
+#if HAVE_DECL_MLX5DV_INIT_OBJ
+	uint8_t *sq;
+	volatile uint32_t *qp_dbr;
+	void *uar_ptr;
+	int sqi;
+	int sq_len;
+
+	virtual void init_dv() {
+		struct mlx5dv_qp dvqp = {};
+		struct mlx5dv_obj dv = {};
+
+		dv.qp.in = qp;
+		dv.qp.out = &dvqp;
+		DO(mlx5dv_init_obj(&dv, MLX5DV_OBJ_QP));
+		sq = (uint8_t *)dvqp.sq.buf;
+		qp_dbr = dvqp.dbrec;
+		uar_ptr = dvqp.bf.reg;
+		sq_len = dvqp.sq.stride * dvqp.sq.wqe_cnt;
+		sqi = 0;
+	}
+
+	void *get_wqe(int i) {
+		void *wqe = sq + ((sqi + i) * MLX5_SEND_WQE_BB) % sq_len;
+		memset(wqe, 0, MLX5_SEND_WQE_BB);
+		return wqe;
+	}
+
+	void ring_db(int i) {
+		void *ctrl = sq + (sqi * MLX5_SEND_WQE_BB) % sq_len;
+
+		//hexdump("WQE", ctrl, i * MLX5_SEND_WQE_BB);
+
+		sqi += i;
+		asm volatile("" ::: "memory");
+
+		qp_dbr[MLX5_SND_DBR] = htobe32(sqi & 0xffff);
+		asm volatile("" ::: "memory");
+
+		*(uint64_t *)uar_ptr = *(uint64_t *)ctrl;
+		asm volatile("" ::: "memory");
+	}
+#else
+	virtual void init_dv() {}
+#endif
 
 	virtual void post_all_wr() {
 		struct ibv_send_wr *bad_wr = NULL;
@@ -1336,7 +1422,6 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 
 
 #elif HAVE_DECL_MLX5DV_DCTYPE_DCT
-#include <infiniband/mlx5dv.h>
 #define HAVE_DC 1
 
 struct ibvt_dct : public ibvt_obj {
@@ -1405,18 +1490,12 @@ struct ibvt_dct : public ibvt_obj {
 
 struct ibvt_qp_dc : public ibvt_qp_ud {
 	ibvt_dct* dremote;
-	uint8_t *sq;
-	uint32_t *qp_dbr;
-	void *uar_ptr;
-	int sqi;
 
 	ibvt_qp_dc(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) : ibvt_qp_ud(e, p, c) {}
 
 	virtual void init() {
 		struct ibv_qp_init_attr_ex attr = {};
 		struct mlx5dv_qp_init_attr dv_attr = {};
-		struct mlx5dv_qp dvqp = {};
-		struct mlx5dv_obj dv = {};
 
 		INIT(pd.init());
 		INIT(cq.init());
@@ -1432,14 +1511,7 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 		dv_attr.dc_init_attr.dct_access_key = DC_KEY;
 		SET(qp, mlx5dv_create_qp(pd.ctx.ctx, &attr, &dv_attr));
 
-		dv.qp.in = qp;
-		dv.qp.out = &dvqp;
-		DO(mlx5dv_init_obj(&dv, MLX5DV_OBJ_QP));
-
-		sq = (uint8_t *)dvqp.sq.buf;
-		qp_dbr = dvqp.dbrec;
-		uar_ptr = dvqp.bf.reg;
-		sqi = 0;
+		EXEC(init_dv());
 	}
 
 	virtual void connect(ibvt_dct *remote) {
@@ -1497,7 +1569,7 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 		else
 			FAIL();
 
-		struct mlx5_wqe_ctrl_seg *ctrl = (struct mlx5_wqe_ctrl_seg *)(sq + sqi % 0x40 * MLX5_SEND_WQE_BB);
+		struct mlx5_wqe_ctrl_seg *ctrl = (struct mlx5_wqe_ctrl_seg *)get_wqe(0);
 		mlx5dv_set_ctrl_seg(ctrl, sqi, op, 0, qp->qp_num, fm_ce_se, ds, 0, 0);
 
 		struct mlx5_wqe_datagram_seg *avseg = (struct mlx5_wqe_datagram_seg *)(ctrl + 1);
@@ -1507,14 +1579,7 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 		struct mlx5_wqe_data_seg *dseg = (struct mlx5_wqe_data_seg *)(avseg + 1);
 		mlx5dv_set_data_seg(dseg, sge.length, sge.lkey, (intptr_t)sge.addr);
 
-		sqi += 2;
-		asm volatile("" ::: "memory");
-
-		qp_dbr[MLX5_SND_DBR] = htobe32(sqi & 0xffff);
-		asm volatile("" ::: "memory");
-
-		*(uint64_t *)uar_ptr = *(uint64_t *)ctrl;
-		asm volatile("" ::: "memory");
+		ring_db(2);
 	}
 
 	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode, enum ibv_send_flags flags = IBV_SEND_SIGNALED) {
