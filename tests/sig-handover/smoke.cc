@@ -253,42 +253,59 @@ struct sig_test_base : public testing::Test, public SD, public ibvt_env {
 		mw(mid_mr, 0, SZD(this->pi_size()), send_qp)
 	{ }
 
+	virtual void config_wr(ibvt_mr &sig_mr, struct ibv_sge data,
+			    struct ibv_exp_sig_domain mem,
+			    struct ibv_exp_sig_domain wire) {
+		struct __cfg_wr {
+			ibv_send_wr wr;
+			ibv_exp_sig_attrs sig;
+			ibv_sge data;
+		} *wr = (__cfg_wr *)calloc(1, sizeof(*wr));
+
+		wr->sig.check_mask = this->check_mask();
+		wr->sig.mem = mem;
+		wr->sig.wire = wire;
+
+		wr->data = data;
+
+		wr->wr.exp_opcode = IBV_EXP_WR_REG_SIG_MR;
+		wr->wr.exp_send_flags = IBV_EXP_SEND_SOLICITED;
+		wr->wr.ext_op.sig_handover.sig_attrs = &wr->sig;
+		wr->wr.ext_op.sig_handover.sig_mr = sig_mr.mr;
+		wr->wr.ext_op.sig_handover.access_flags =
+			IBV_ACCESS_LOCAL_WRITE |
+			IBV_ACCESS_REMOTE_READ |
+			IBV_ACCESS_REMOTE_WRITE;
+		wr->wr.ext_op.sig_handover.prot = NULL;
+
+		wr->wr.num_sge = 1;
+		wr->wr.sg_list = &wr->data;
+
+		add_wr(&wr->wr);
+	}
+
 	virtual void config(ibvt_mr &sig_mr, struct ibv_sge data,
 			    struct ibv_exp_sig_domain mem,
 			    struct ibv_exp_sig_domain wire) {
-		struct ibv_send_wr wr = {};
-		struct ibv_send_wr *bad_wr;
-		struct ibv_exp_sig_attrs sig = {};
+		config_wr(sig_mr, data, mem, wire);
+		EXEC(send_qp.post_all_wr());
+	}
 
-		sig.check_mask = this->check_mask();
-		sig.mem = mem;
-		sig.wire = wire;
+	virtual void linv_wr(ibvt_mr &sig_mr, int sign = 0) {
+		struct ibv_send_wr *wr = (ibv_send_wr *)calloc(1, sizeof(*wr));
 
-		wr.exp_opcode = IBV_EXP_WR_REG_SIG_MR;
-		wr.exp_send_flags = IBV_EXP_SEND_SIGNALED;
-		wr.ext_op.sig_handover.sig_attrs = &sig;
-		wr.ext_op.sig_handover.sig_mr = sig_mr.mr;
-		wr.ext_op.sig_handover.access_flags = IBV_ACCESS_LOCAL_WRITE |
-						      IBV_ACCESS_REMOTE_READ |
-						      IBV_ACCESS_REMOTE_WRITE;
-		wr.ext_op.sig_handover.prot = NULL;
+		wr->exp_opcode = IBV_EXP_WR_LOCAL_INV;
+		wr->exp_send_flags = IBV_EXP_SEND_SOLICITED | IBV_EXP_SEND_FENCE;
+		if (sign)
+			wr->exp_send_flags |= IBV_EXP_SEND_SIGNALED;
+		wr->ex.invalidate_rkey = sig_mr.mr->rkey;
 
-		wr.num_sge = 1;
-		wr.sg_list = &data;
-
-		DO(ibv_post_send(send_qp.qp, &wr, &bad_wr));
-		EXEC(cq.poll());
+		add_wr(wr);
 	}
 
 	virtual void linv(ibvt_mr &sig_mr) {
-		struct ibv_send_wr wr = {};
-		struct ibv_send_wr *bad_wr;
-
-		wr.exp_opcode = IBV_EXP_WR_LOCAL_INV;
-		wr.exp_send_flags = IBV_EXP_SEND_SIGNALED;
-		wr.ex.invalidate_rkey = sig_mr.mr->rkey;
-		DO(ibv_post_send(send_qp.qp, &wr, &bad_wr));
-		EXEC(cq.poll());
+		linv_wr(sig_mr);
+		EXEC(send_qp.post_all_wr());
 	}
 
 	void mr_status(ibvt_mr &mr, int expected) {

@@ -339,6 +339,9 @@ struct ibvt_env {
 	char meminfo[8192];
 	int ram_init;
 
+	struct ibv_send_wr *wr_list;
+	struct ibv_send_wr *wr_list_end;
+
 	void init_ram() {
 		int fd = open("/proc/meminfo", O_RDONLY);
 		ASSERT_GT(fd, 0);
@@ -359,6 +362,22 @@ struct ibvt_env {
 		}
 	}
 
+	virtual void add_wr(ibv_send_wr *wr) {
+		if (wr_list)
+			wr_list_end->next = wr;
+		else
+			wr_list = wr;
+		wr_list_end = wr;
+	}
+
+	virtual void free_wr() {
+		while (wr_list) {
+			struct ibv_send_wr *wr = wr_list;
+			wr_list = wr_list->next;
+			free(wr);
+		}
+	}
+
 	ibvt_env() :
 		env(*this),
 		lvl(0),
@@ -366,7 +385,8 @@ struct ibvt_env {
 		fatality(0),
 		flags(ACTIVE),
 		run(0),
-		ram_init(0)
+		ram_init(0),
+		wr_list(NULL)
 	{
 		memset(lvl_str, 0, sizeof(lvl_str));
 	}
@@ -922,6 +942,12 @@ struct ibvt_qp : public ibvt_obj {
 		SET(qp, ibv_create_qp_ex(pd.ctx.ctx, &attr));
 	}
 
+	virtual void post_all_wr() {
+		struct ibv_send_wr *bad_wr = NULL;
+		DO(ibv_post_send(qp, env.wr_list, &bad_wr));
+		env.free_wr();
+	}
+
 	virtual void recv(ibv_sge sge) {
 		struct ibv_recv_wr wr;
 		struct ibv_recv_wr *bad_wr = NULL;
@@ -949,22 +975,28 @@ struct ibvt_qp : public ibvt_obj {
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
 
-	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode, enum ibv_send_flags flags = IBV_SEND_SIGNALED) {
-		struct ibv_send_wr wr;
-		struct ibv_send_wr *bad_wr = NULL;
+	virtual void rdma_wr(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode, int flags = IBV_SEND_SIGNALED) {
+		struct __rdma_wr {
+			ibv_send_wr wr;
+			ibv_sge sge;
+		} *wr = (__rdma_wr *)calloc(1, sizeof(*wr));
 
-		memset(&wr, 0, sizeof(wr));
-		wr.next = NULL;
-		wr.wr_id = 0;
-		wr.sg_list = &src_sge;
-		wr.num_sge = 1;
-		wr._wr_opcode = opcode;
-		wr._wr_send_flags = flags;
+		wr->sge = src_sge;
+		wr->wr.wr_id = 0;
+		wr->wr.sg_list = &wr->sge;
+		wr->wr.num_sge = 1;
+		wr->wr._wr_opcode = opcode;
+		wr->wr._wr_send_flags = flags;
 
-		wr.wr.rdma.remote_addr = dst_sge.addr;
-		wr.wr.rdma.rkey = dst_sge.lkey;
+		wr->wr.wr.rdma.remote_addr = dst_sge.addr;
+		wr->wr.wr.rdma.rkey = dst_sge.lkey;
 
-		DO(ibv_post_send(qp, &wr, &bad_wr));
+		env.add_wr(&wr->wr);
+	}
+
+	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode, int flags = IBV_SEND_SIGNALED) {
+		rdma_wr(src_sge, dst_sge, opcode, flags);
+		EXEC(post_all_wr());
 	}
 
 	virtual void rdma2(ibv_sge src_sge1,
