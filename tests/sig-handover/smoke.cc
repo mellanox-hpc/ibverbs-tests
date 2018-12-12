@@ -47,9 +47,10 @@
 #include "env.h"
 
 #if 1
-#define BBB 16
+#define BBB 0x10
 #else
 #define BBB 1
+#define BBB 0x100000
 #endif
 
 #define SZ (512*BBB)
@@ -683,3 +684,154 @@ TEST_F(sig_test_pipeline, p4) {
 		EXEC(send_qp.send_2wr(this->strip_mr.sge(0,SZ), this->src_mr.sge()));
 	}
 }
+
+#ifndef SIG_MR_REUSE
+#define N 150
+#define M 15000
+
+TEST_F(sig_test_t10dif, b0) {
+	CHK_SUT(sig_handover);
+
+	for (long j = 0; j < M; j++) {
+		for (long i = 0; i < N; i++) {
+			EXEC(config_wr(this->insert_mr, this->src_mr.sge(), this->nosig(), this->sig()));
+			EXEC(config_wr(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+			EXEC(send_qp.rdma_wr(this->mid_mr.sge(), this->insert_mr.sge(0,SZD(this->pi_size())), IBV_WR_RDMA_READ, 0));
+			EXEC(send_qp.rdma_wr(this->dst_mr.sge(), this->strip_mr.sge(0,SZ), IBV_WR_RDMA_READ));
+			EXEC(linv_wr(this->insert_mr));
+			EXEC(linv_wr(this->strip_mr));
+		}
+		EXEC(send_qp.post_all_wr());
+		for (long i = 0; i < N; i++)
+			EXEC(cq.poll());
+		EXEC(dst_mr.check());
+	}
+}
+
+TEST_F(sig_test_t10dif, b1) {
+	CHK_SUT(sig_handover);
+
+	for (long j = 0; j < M; j++) {
+		for (long i = 0; i < N; i++) {
+			EXEC(config_wr(this->insert_mr, this->src_mr.sge(), this->nosig(), this->sig()));
+			EXEC(config_wr(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+			EXEC(send_qp.rdma_wr(this->insert_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_WRITE, 0));
+			EXEC(send_qp.rdma_wr(this->strip_mr.sge(0,SZ), this->dst_mr.sge(), IBV_WR_RDMA_WRITE));
+			EXEC(linv_wr(this->insert_mr));
+			EXEC(linv_wr(this->strip_mr));
+		}
+		EXEC(send_qp.post_all_wr());
+		for (long i = 0; i < N; i++)
+			EXEC(cq.poll());
+
+		EXEC(dst_mr.check());
+	}
+}
+
+TEST_F(sig_test_t10dif, b2) {
+	CHK_SUT(sig_handover);
+
+	for (long j = 0; j < M; j++) {
+		for (long i = 0; i < N; i++) {
+			EXEC(config_wr(this->insert_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+			EXEC(config_wr(this->strip_mr, this->dst_mr.sge(), this->nosig(), this->sig()));
+			EXEC(send_qp.rdma_wr(this->insert_mr.sge(0,SZ), this->src_mr.sge(), IBV_WR_RDMA_READ, 0));
+			EXEC(send_qp.rdma_wr(this->strip_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_READ));
+			EXEC(linv_wr(this->insert_mr));
+			EXEC(linv_wr(this->strip_mr));
+		}
+		EXEC(send_qp.post_all_wr());
+		for (long i = 0; i < N; i++)
+			EXEC(cq.poll());
+
+		EXEC(dst_mr.check());
+	}
+}
+
+TEST_F(sig_test_t10dif, b3) {
+	CHK_SUT(sig_handover);
+
+	for (long j = 0; j < M; j++) {
+		for (long i = 0; i < N; i++) {
+			EXEC(config_wr(this->insert_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+			EXEC(config_wr(this->strip_mr, this->dst_mr.sge(), this->nosig(), this->sig()));
+			EXEC(send_qp.rdma_wr(this->src_mr.sge(), this->insert_mr.sge(0,SZ), IBV_WR_RDMA_WRITE, 0));
+			EXEC(send_qp.rdma_wr(this->mid_mr.sge(), this->strip_mr.sge(0,SZD(this->pi_size())), IBV_WR_RDMA_WRITE));
+			EXEC(linv_wr(this->insert_mr));
+			EXEC(linv_wr(this->strip_mr));
+		}
+		EXEC(send_qp.post_all_wr());
+		for (long i = 0; i < N; i++)
+			EXEC(cq.poll());
+
+		EXEC(dst_mr.check());
+	}
+}
+
+TEST_F(sig_test_t10dif, b4) {
+	CHK_SUT(sig_handover);
+
+	for (long j = 0; j < M; j++) {
+		for (long i = 0; i < N; i++) {
+			EXEC(config_wr(this->insert_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+			EXEC(config_wr(this->strip_mr, this->dst_mr.sge(), this->nosig(), this->sig()));
+			if ((i ^ j) & 1) {
+				EXEC(send_qp.rdma_wr(this->src_mr.sge(), this->insert_mr.sge(0,SZ), IBV_WR_RDMA_WRITE, 0));
+				EXEC(send_qp.rdma_wr(this->strip_mr.sge(0,SZD(this->pi_size())), this->mid_mr.sge(), IBV_WR_RDMA_READ));
+			} else {
+				EXEC(send_qp.rdma_wr(this->insert_mr.sge(0,SZ), this->src_mr.sge(), IBV_WR_RDMA_READ, 0));
+				EXEC(send_qp.rdma_wr(this->mid_mr.sge(), this->strip_mr.sge(0,SZD(this->pi_size())), IBV_WR_RDMA_WRITE));
+			}
+			EXEC(linv_wr(this->insert_mr));
+			EXEC(linv_wr(this->strip_mr));
+		}
+		EXEC(send_qp.post_all_wr());
+		for (long i = 0; i < N; i++)
+			EXEC(cq.poll());
+
+		EXEC(dst_mr.check());
+	}
+}
+
+TEST_F(sig_test_t10dif, b5) {
+	CHK_SUT(sig_handover);
+
+	for (long j = 0; j < M; j++) {
+		for (long i = 0; i < N; i++) {
+			int offset = 0; //i & 1 ? 512 : 0;
+			EXEC(config_wr(this->insert_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+			EXEC(config_wr(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+			EXEC(send_qp.rdma_wr(this->insert_mr.sge(offset,SZ), this->src_mr.sge(), IBV_WR_RDMA_READ, 0));
+			EXEC(send_qp.rdma_wr(this->dst_mr.sge(offset,SZ), this->strip_mr.sge(), IBV_WR_RDMA_READ, 0));
+			EXEC(linv_wr(this->insert_mr));
+			EXEC(linv_wr(this->strip_mr, 1));
+		}
+		EXEC(send_qp.post_all_wr());
+		for (long i = 0; i < N; i++)
+			EXEC(cq.poll());
+
+		EXEC(dst_mr.check());
+	}
+}
+
+TEST_F(sig_test_t10dif, b5o) {
+	CHK_SUT(sig_handover);
+
+	for (long j = 0; j < M; j++) {
+		for (long i = 0; i < N; i++) {
+			int offset = i & 1 ? 512 : 0;
+			EXEC(config_wr(this->insert_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+			EXEC(config_wr(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
+			EXEC(send_qp.rdma_wr(this->insert_mr.sge(offset,SZ), this->src_mr.sge(), IBV_WR_RDMA_READ, 0));
+			EXEC(send_qp.rdma_wr(this->dst_mr.sge(offset,SZ), this->strip_mr.sge(), IBV_WR_RDMA_READ, 0));
+			EXEC(linv_wr(this->insert_mr));
+			EXEC(linv_wr(this->strip_mr, 1));
+		}
+		EXEC(send_qp.post_all_wr());
+		for (long i = 0; i < N; i++)
+			EXEC(cq.poll());
+
+		EXEC(dst_mr.check());
+	}
+}
+#endif
