@@ -153,15 +153,15 @@ struct odp_mem : public ibvt_obj {
 	odp_side &ssrc;
 	odp_side &sdst;
 
-	ibvt_mr *psrc;
-	ibvt_mr *pdst;
+	ibvt_abstract_mr *psrc;
+	ibvt_abstract_mr *pdst;
 
 	odp_mem(odp_side &s, odp_side &d) : ibvt_obj(s.env), ssrc(s), sdst(d), psrc(NULL), pdst(NULL) {}
 
 	virtual void init() {}
 	virtual void reg(unsigned long src_addr, unsigned long dst_addr, size_t len) = 0;
-	virtual ibvt_mr &src() { return *psrc; }
-	virtual ibvt_mr &dst() { return *pdst; }
+	virtual ibvt_abstract_mr &src() { return *psrc; }
+	virtual ibvt_abstract_mr &dst() { return *pdst; }
 	virtual void unreg() {
 		if (psrc)
 			delete psrc;
@@ -205,8 +205,9 @@ struct odp_trans : public ibvt_obj {
 	virtual void poll_dst() = 0;
 };
 
+template<typename Ctx>
 struct odp_base : public testing::Test, public ibvt_env {
-	ibvt_ctx ctx;
+	Ctx ctx;
 	ibvt_pd pd;
 	int src_access_flags;
 	int dst_access_flags;
@@ -240,14 +241,14 @@ struct odp_base : public testing::Test, public ibvt_env {
 	}
 };
 
-template<typename QP>
+template<typename QP, typename Ctx>
 struct odp_qp : public odp_trans {
 	ibvt_ctx &ctx;
 	ibvt_pd &pd;
 	odp_side_qp<QP> src;
 	odp_side_qp<QP> dst;
 
-	odp_qp(odp_base &e) :
+	odp_qp(odp_base<Ctx> &e) :
 		odp_trans(e),
 		ctx(e.ctx),
 		pd(e.pd),
@@ -275,7 +276,8 @@ struct odp_qp : public odp_trans {
 	virtual void poll_dst() { dst.cq.poll(); }
 };
 
-typedef odp_qp<ibvt_qp_rc> odp_rc;
+typedef odp_qp<ibvt_qp_rc, ibvt_ctx> odp_rc;
+//typedef odp_qp<ibvt_qp_rc, ibvt_ctx_devx> odp_rc_devx;
 
 #if HAVE_INFINIBAND_VERBS_EXP_H
 struct odp_side_dci : public odp_side {
@@ -320,7 +322,7 @@ struct odp_dc : public odp_trans {
 	odp_side_dci src;
 	odp_side_dct dst;
 
-	odp_dc(odp_base &e) :
+	odp_dc(odp_base<ibvt_ctx> &e) :
 		odp_trans(e),
 		ctx(e.ctx),
 		pd(e.pd),
@@ -427,7 +429,7 @@ struct ibvt_qp_rc_umr : public ibvt_qp_rc {
 	}
 };
 
-typedef odp_qp<ibvt_qp_rc_umr> odp_rc_umr;
+typedef odp_qp<ibvt_qp_rc_umr, ibvt_ctx> odp_rc_umr;
 
 struct odp_implicit_mw : public odp_implicit {
 	odp_implicit_mw(odp_side &s, odp_side &d) :
@@ -441,16 +443,18 @@ struct odp_implicit_mw : public odp_implicit {
 #endif
 
 #define ODP_CHK_SUT(len) \
+	CHK_SUT(odp); \
 	this->check_ram("MemFree:", len * 3); \
 	this->mem().reg(0,0,len); \
 	this->mem().src().init(); \
 	this->mem().dst().init(); \
-	this->mem().unreg(); \
-	CHK_SUT(odp);
+	this->mem().unreg();
 
-struct odp_send : public odp_base {
+
+template<typename Ctx>
+struct odp_send : public odp_base<Ctx> {
 	odp_send():
-		odp_base(0, IBV_ACCESS_LOCAL_WRITE) {}
+		odp_base<Ctx>(0, IBV_ACCESS_LOCAL_WRITE) {}
 
 	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) {
 		EXEC(mem().reg(src, dst, len));
@@ -459,8 +463,8 @@ struct odp_send : public odp_base {
 
 		EXEC(mem().check_stats_before());
 		for (int i = 0; i < count; i++) {
-			EXEC(trans().recv(mem().dst().sge(len/count*i, len/count)));
-			EXEC(trans().send(mem().src().sge(len/count*i, len/count)));
+			EXEC(trans().recv(this->mem().dst().sge(len/count*i, len/count)));
+			EXEC(trans().send(this->mem().src().sge(len/count*i, len/count)));
 			EXEC(trans().poll_src());
 			EXEC(trans().poll_dst());
 		}
@@ -470,9 +474,10 @@ struct odp_send : public odp_base {
 	}
 };
 
-struct odp_rdma_read : public odp_base {
+template<typename Ctx>
+struct odp_rdma_read : public odp_base<Ctx> {
 	odp_rdma_read():
-		odp_base(IBV_ACCESS_REMOTE_READ, IBV_ACCESS_LOCAL_WRITE) {}
+		odp_base<Ctx>(IBV_ACCESS_REMOTE_READ, IBV_ACCESS_LOCAL_WRITE) {}
 
 	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) {
 		EXEC(mem().reg(src, dst, len));
@@ -481,9 +486,9 @@ struct odp_rdma_read : public odp_base {
 
 		EXEC(mem().check_stats_before());
 		for (int i = 0; i < count; i++) {
-			EXEC(trans().rdma_dst(mem().dst().sge(len/count*i, len/count),
-					 mem().src().sge(len/count*i, len/count),
-					 IBV_WR_RDMA_READ));
+			EXEC(trans().rdma_dst(this->mem().dst().sge(len/count*i, len/count),
+					      this->mem().src().sge(len/count*i, len/count),
+					      IBV_WR_RDMA_READ));
 			EXEC(trans().poll_dst());
 		}
 		EXEC(mem().check_stats_after(len));
@@ -492,9 +497,10 @@ struct odp_rdma_read : public odp_base {
 	}
 };
 
-struct odp_rdma_write : public odp_base {
+template<typename Ctx>
+struct odp_rdma_write : public odp_base<Ctx> {
 	odp_rdma_write():
-		odp_base(0, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE) {}
+		odp_base<Ctx>(0, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE) {}
 
 	virtual void test(unsigned long src, unsigned long dst, size_t len, int count = 1) {
 		EXEC(mem().reg(src, dst, len));
@@ -503,8 +509,8 @@ struct odp_rdma_write : public odp_base {
 
 		EXEC(mem().check_stats_before());
 		for (int i = 0; i < count; i++) {
-			EXEC(trans().rdma_src(mem().src().sge(len/count*i, len/count),
-						mem().dst().sge(len/count*i, len/count),
+			EXEC(trans().rdma_src(this->mem().src().sge(len/count*i, len/count),
+					      this->mem().dst().sge(len/count*i, len/count),
 						IBV_WR_RDMA_WRITE));
 			EXEC(trans().poll_src());
 		}
@@ -539,35 +545,35 @@ struct odp : public T::OP {
 };
 
 typedef testing::Types<
-	types<odp_explicit, odp_rc, odp_send>,
-	types<odp_explicit, odp_rc, odp_rdma_read>,
-	types<odp_explicit, odp_rc, odp_rdma_write>,
+	types<odp_explicit, odp_rc, odp_send<ibvt_ctx> >,
+	types<odp_explicit, odp_rc, odp_rdma_read<ibvt_ctx> >,
+	types<odp_explicit, odp_rc, odp_rdma_write<ibvt_ctx> >,
 #if HAVE_PREFETCH
-	types<odp_prefetch, odp_rc, odp_send>,
-	types<odp_prefetch, odp_rc, odp_rdma_read>,
-	types<odp_prefetch, odp_rc, odp_rdma_write>,
+	types<odp_prefetch, odp_rc, odp_send<ibvt_ctx> >,
+	types<odp_prefetch, odp_rc, odp_rdma_read<ibvt_ctx> >,
+	types<odp_prefetch, odp_rc, odp_rdma_write<ibvt_ctx> >,
 #endif
-	types<odp_implicit, odp_rc, odp_send>,
-	types<odp_implicit, odp_rc, odp_rdma_read>,
-	types<odp_implicit, odp_rc, odp_rdma_write>,
+	types<odp_implicit, odp_rc, odp_send<ibvt_ctx> >,
+	types<odp_implicit, odp_rc, odp_rdma_read<ibvt_ctx> >,
+	types<odp_implicit, odp_rc, odp_rdma_write<ibvt_ctx> >,
 #if HAVE_DECL_IBV_ACCESS_HUGETLB
-	types<odp_hugetlb, odp_rc, odp_send>,
-	types<odp_hugetlb, odp_rc, odp_rdma_read>,
-	types<odp_hugetlb, odp_rc, odp_rdma_write>,
+	types<odp_hugetlb, odp_rc, odp_send<ibvt_ctx> >,
+	types<odp_hugetlb, odp_rc, odp_rdma_read<ibvt_ctx> >,
+	types<odp_hugetlb, odp_rc, odp_rdma_write<ibvt_ctx> >,
 #endif
 #if HAVE_INFINIBAND_VERBS_EXP_H
-	types<odp_explicit, odp_dc, odp_rdma_write>,
-	types<odp_implicit, odp_dc, odp_rdma_write>,
-	types<odp_off, odp_dc, odp_send>,
-	types<odp_off, odp_dc, odp_rdma_write>,
+	types<odp_explicit, odp_dc, odp_rdma_write<ibvt_ctx> >,
+	types<odp_implicit, odp_dc, odp_rdma_write<ibvt_ctx> >,
+	types<odp_off, odp_dc, odp_send<ibvt_ctx> >,
+	types<odp_off, odp_dc, odp_rdma_write<ibvt_ctx> >,
 
-	types<odp_implicit_mw, odp_rc_umr, odp_send>,
-	types<odp_implicit_mw, odp_rc_umr, odp_rdma_read>,
-	types<odp_implicit_mw, odp_rc_umr, odp_rdma_write>,
+	types<odp_implicit_mw, odp_rc_umr, odp_send<ibvt_ctx> >,
+	types<odp_implicit_mw, odp_rc_umr, odp_rdma_read<ibvt_ctx> >,
+	types<odp_implicit_mw, odp_rc_umr, odp_rdma_write<ibvt_ctx> >,
 #endif
-	types<odp_off, odp_rc, odp_send>,
-	types<odp_off, odp_rc, odp_rdma_read>,
-	types<odp_off, odp_rc, odp_rdma_write>
+	types<odp_off, odp_rc, odp_send<ibvt_ctx> >,
+	types<odp_off, odp_rc, odp_rdma_read<ibvt_ctx> >,
+	types<odp_off, odp_rc, odp_rdma_write<ibvt_ctx> >
 > odp_env_list;
 
 TYPED_TEST_CASE(odp, odp_env_list);
@@ -610,12 +616,12 @@ template <typename T>
 struct odp_long : public odp<T> { odp_long(): odp<T>() {} };
 
 typedef testing::Types<
-	types<odp_explicit, odp_rc, odp_send>,
-	types<odp_implicit, odp_rc, odp_send>,
+	types<odp_explicit, odp_rc, odp_send<ibvt_ctx> >,
+	types<odp_implicit, odp_rc, odp_send<ibvt_ctx> >,
 #if HAVE_DECL_IBV_ACCESS_HUGETLB
-	types<odp_hugetlb, odp_rc, odp_send>,
+	types<odp_hugetlb, odp_rc, odp_send<ibvt_ctx> >,
 #endif
-	types<odp_off, odp_rc, odp_send>
+	types<odp_off, odp_rc, odp_send<ibvt_ctx> >
 > odp_env_list_long;
 
 TYPED_TEST_CASE(odp_long, odp_env_list_long);
@@ -680,13 +686,13 @@ template <typename T>
 struct odp_spec : public odp<T> { odp_spec(): odp<T>() {} };
 
 typedef testing::Types<
-	//types<odp_implicit_mw_1imr, odp_rc_umr, odp_send>
-	//types<odp_persist, odp_rc, odp_send>,
-	//types<odp_persist, odp_rc, odp_rdma_read>,
-	//types<odp_persist, odp_rc, odp_rdma_write>
-	types<odp_implicit, odp_rc, odp_send>,
-	types<odp_implicit, odp_rc, odp_rdma_read>,
-	types<odp_implicit, odp_rc, odp_rdma_write>
+	//types<odp_implicit_mw_1imr, odp_rc_umr, odp_send<ibvt_ctx> >
+	//types<odp_persist, odp_rc, odp_send<ibvt_ctx> >,
+	//types<odp_persist, odp_rc, odp_rdma_read<ibvt_ctx> >,
+	//types<odp_persist, odp_rc, odp_rdma_write<ibvt_ctx> >
+	types<odp_implicit, odp_rc, odp_send<ibvt_ctx> >,
+	types<odp_implicit, odp_rc, odp_rdma_read<ibvt_ctx> >,
+	types<odp_implicit, odp_rc, odp_rdma_write<ibvt_ctx> >
 > odp_env_list_spec;
 
 TYPED_TEST_CASE(odp_spec, odp_env_list_spec);
@@ -696,6 +702,240 @@ TYPED_TEST(odp_spec, s0) {
 	unsigned long p = 0x2000000000;
 	for (int i = 0; i < 20000; i++)
 		EXEC(test(p, p+0x40000, 0x40000));
+}
+#endif
+
+#if HAVE_DECL_MLX5DV_CONTEXT_FLAGS_DEVX
+#include "../devx/devx_prm.h"
+
+enum {
+	MLX5_WQE_UMR_CTRL_FLAG_INLINE =			1 << 7,
+	MLX5_WQE_UMR_CTRL_FLAG_CHECK_FREE =		1 << 5,
+	MLX5_WQE_UMR_CTRL_FLAG_TRNSLATION_OFFSET =	1 << 4,
+	MLX5_WQE_UMR_CTRL_FLAG_CHECK_QPN =		1 << 3,
+};
+
+enum {
+	MLX5_WQE_UMR_CTRL_MKEY_MASK_LEN			= 1 << 0,
+	MLX5_WQE_UMR_CTRL_MKEY_MASK_START_ADDR		= 1 << 6,
+	MLX5_WQE_UMR_CTRL_MKEY_MASK_MKEY		= 1 << 13,
+	MLX5_WQE_UMR_CTRL_MKEY_MASK_QPN			= 1 << 14,
+	MLX5_WQE_UMR_CTRL_MKEY_MASK_ACCESS_LOCAL_WRITE	= 1 << 18,
+	MLX5_WQE_UMR_CTRL_MKEY_MASK_ACCESS_REMOTE_READ	= 1 << 19,
+	MLX5_WQE_UMR_CTRL_MKEY_MASK_ACCESS_REMOTE_WRITE	= 1 << 20,
+	MLX5_WQE_UMR_CTRL_MKEY_MASK_ACCESS_ATOMIC	= 1 << 21,
+	MLX5_WQE_UMR_CTRL_MKEY_MASK_FREE		= 1 << 29,
+};
+
+enum {
+	MLX5_UMR_CTRL_INLINE	= 1 << 7,
+};
+
+struct mlx5_wqe_umr_ctrl_seg {
+	uint8_t		flags;
+	uint8_t		rsvd0[3];
+	__be16		klm_octowords;
+	__be16		translation_offset;
+	__be64		mkey_mask;
+	uint8_t		rsvd1[32];
+};
+
+struct mlx5_wqe_umr_klm_seg {
+	/* up to 2GB */
+	__be32		byte_count;
+	__be32		mkey;
+	__be64		address;
+};
+
+union mlx5_wqe_umr_inline_seg {
+	struct mlx5_wqe_umr_klm_seg	klm;
+};
+
+enum {
+	MLX5_WQE_MKEY_CONTEXT_FREE = 1 << 6
+};
+
+enum {
+	MLX5_WQE_MKEY_CONTEXT_ACCESS_FLAGS_ATOMIC = 1 << 6,
+	MLX5_WQE_MKEY_CONTEXT_ACCESS_FLAGS_REMOTE_WRITE = 1 << 5,
+	MLX5_WQE_MKEY_CONTEXT_ACCESS_FLAGS_REMOTE_READ = 1 << 4,
+	MLX5_WQE_MKEY_CONTEXT_ACCESS_FLAGS_LOCAL_WRITE = 1 << 3,
+	MLX5_WQE_MKEY_CONTEXT_ACCESS_FLAGS_LOCAL_READ = 1 << 2
+};
+
+struct mlx5_wqe_mkey_context_seg {
+	uint8_t		free;
+	uint8_t		reserved1;
+	uint8_t		access_flags;
+	uint8_t		sf;
+	__be32		qpn_mkey;
+	__be32		reserved2;
+	__be32		flags_pd;
+	__be64		start_addr;
+	__be64		len;
+	__be32		bsf_octword_size;
+	__be32		reserved3[4];
+	__be32		translations_octword_size;
+	uint8_t		reserved4[3];
+	uint8_t		log_page_size;
+	__be32		reserved;
+	union mlx5_wqe_umr_inline_seg inseg[0];
+};
+
+struct devx_klm : public ibvt_abstract_mr {
+	struct mlx5dv_devx_obj *dvmr;
+	ibvt_mr &sub_mr;
+	ibvt_qp &umr_qp;
+	uint32_t mkey;
+
+	devx_klm(ibvt_mr &m, ibvt_qp &q) :
+		ibvt_abstract_mr(m.env, m.size, m.addr),
+		sub_mr(m),
+		umr_qp(q) {}
+
+	virtual void init() {
+		uint32_t in[DEVX_ST_SZ_DW(create_mkey_in)] = {0};
+		uint32_t out[DEVX_ST_SZ_DW(create_mkey_out)] = {0};
+		struct mlx5dv_obj dv = {};
+		struct mlx5dv_pd dvpd = {};
+
+		sub_mr.init();
+
+		buff = (char *)addr;
+		dv.pd.in = sub_mr.pd.pd;
+		dv.pd.out = &dvpd;
+		mlx5dv_init_obj(&dv, MLX5DV_OBJ_PD);
+
+		DEVX_SET(create_mkey_in, in, opcode, MLX5_CMD_OP_CREATE_MKEY);
+		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.access_mode_1_0, MLX5_MKC_ACCESS_MODE_KLMS);
+		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.a, 1);
+		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.rw, 1);
+		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.rr, 1);
+		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.lw, 1);
+		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.lr, 1);
+		DEVX_SET64(create_mkey_in, in, memory_key_mkey_entry.start_addr, (intptr_t)buff);
+		DEVX_SET64(create_mkey_in, in, memory_key_mkey_entry.len, size);
+		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.pd, dvpd.pdn);
+		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.translations_octword_size, 1);
+		//DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.log_entity_size, 12);
+		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.qpn, 0xffffff);
+		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.mkey_7_0, 0x42);
+		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.free, 1);
+		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.umr_en, 1);
+
+		SET(dvmr, mlx5dv_devx_obj_create(sub_mr.pd.ctx.ctx, in, sizeof(in), out, sizeof(out)));
+		mkey = DEVX_GET(create_mkey_out, out, mkey_index) << 8 | 0x42;
+
+		struct mlx5_wqe_ctrl_seg *ctrl = (struct mlx5_wqe_ctrl_seg *)umr_qp.get_wqe(0);
+		mlx5dv_set_ctrl_seg(ctrl, umr_qp.sqi, MLX5_OPCODE_UMR, 0, umr_qp.qp->qp_num, 0, 12, 0, htobe32(mkey));
+
+		struct mlx5_wqe_umr_ctrl_seg *umr = (struct mlx5_wqe_umr_ctrl_seg *)(ctrl + 1);
+		umr->flags = MLX5_WQE_UMR_CTRL_FLAG_INLINE;
+		umr->mkey_mask = htobe64(MLX5_WQE_UMR_CTRL_MKEY_MASK_LEN |
+					 MLX5_WQE_UMR_CTRL_MKEY_MASK_START_ADDR |
+					 MLX5_WQE_UMR_CTRL_MKEY_MASK_MKEY |
+					 MLX5_WQE_UMR_CTRL_MKEY_MASK_QPN |
+					 MLX5_WQE_UMR_CTRL_MKEY_MASK_ACCESS_LOCAL_WRITE |
+					 MLX5_WQE_UMR_CTRL_MKEY_MASK_ACCESS_REMOTE_READ |
+					 MLX5_WQE_UMR_CTRL_MKEY_MASK_ACCESS_REMOTE_WRITE |
+					 MLX5_WQE_UMR_CTRL_MKEY_MASK_ACCESS_ATOMIC |
+					 MLX5_WQE_UMR_CTRL_MKEY_MASK_FREE);
+		umr->klm_octowords = htobe16(4);
+
+		struct mlx5_wqe_mkey_context_seg *mk = (struct mlx5_wqe_mkey_context_seg *)umr_qp.get_wqe(1);
+		mk->access_flags =
+			MLX5_WQE_MKEY_CONTEXT_ACCESS_FLAGS_ATOMIC       |
+			MLX5_WQE_MKEY_CONTEXT_ACCESS_FLAGS_REMOTE_WRITE |
+			MLX5_WQE_MKEY_CONTEXT_ACCESS_FLAGS_REMOTE_READ  |
+			MLX5_WQE_MKEY_CONTEXT_ACCESS_FLAGS_LOCAL_WRITE  |
+			MLX5_WQE_MKEY_CONTEXT_ACCESS_FLAGS_LOCAL_READ;
+		mk->qpn_mkey = htobe32(0xffffff42);
+		mk->start_addr = htobe64((intptr_t)buff);
+		mk->len = htobe64(size);
+
+		struct mlx5_wqe_data_seg *dseg = (struct mlx5_wqe_data_seg *)umr_qp.get_wqe(2);
+		mlx5dv_set_data_seg(dseg, size, sub_mr.mr->lkey, (intptr_t)buff);
+
+		umr_qp.ring_db(3);
+	}
+
+	~devx_klm() {
+		mlx5dv_devx_obj_destroy(dvmr);
+	}
+
+	virtual uint32_t lkey() {
+		return mkey;
+	}
+};
+
+template <typename Mem>
+struct odp_mem_devx : public Mem {
+	ibvt_mr *fsrc;
+	ibvt_mr *fdst;
+	ibvt_cq umr_cq;
+	ibvt_qp_rc umr_qp;
+
+	odp_mem_devx(odp_side &s, odp_side &d) : Mem(s, d),
+		fsrc(NULL), fdst(NULL),
+		umr_cq(s.env, s.ctx),
+		umr_qp(s.env, s.pd, umr_cq) {}
+
+	virtual void init() {
+		INIT(Mem::init());
+		if (this->env.skip)
+			return;
+		INIT(umr_cq.init());
+		INIT(umr_qp.init());
+		INIT(umr_qp.connect(&umr_qp));
+	}
+
+	virtual void reg(unsigned long src_addr, unsigned long dst_addr, size_t len) {
+		EXEC(Mem::reg(src_addr, dst_addr, len));
+
+		fsrc = (ibvt_mr *)this->psrc;
+		fdst = (ibvt_mr *)this->pdst;
+
+		SET(this->psrc, new devx_klm(*fsrc, umr_qp));
+		SET(this->pdst, new devx_klm(*fdst, umr_qp));
+	}
+
+	virtual void unreg() {
+		if (fsrc)
+			delete fsrc;
+		if (fdst)
+			delete fdst;
+
+		EXEC(Mem::unreg());
+	}
+
+	virtual void check_stats_before() { }
+	virtual void check_stats_after(size_t len) { }
+};
+
+typedef odp_qp<ibvt_qp_rc, ibvt_ctx_devx> odp_rc_devx;
+
+template <typename T>
+struct odp_devx : public odp<T> { odp_devx(): odp<T>() {} };
+
+typedef testing::Types<
+	types<odp_mem_devx<odp_off>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >
+> odp_devx_list_spec;
+
+TYPED_TEST_CASE(odp_devx, odp_devx_list_spec);
+
+TYPED_TEST(odp_devx, t0_crossbound) {
+	ODP_CHK_SUT(PAGE);
+	EXEC(test((1ULL<<(32+1))-PAGE,
+		  (1ULL<<(32+2))-PAGE,
+		  PAGE * 2));
 }
 #endif
 

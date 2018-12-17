@@ -130,6 +130,11 @@ AC_CHECK_DECLS([ibv_exp_prefetch_mr], [], [], [
 #include <infiniband/verbs_exp.h>
 ])
 
+AC_CHECK_DECLS([mlx5dv_devx_general_cmd], [devx=1], [], [
+#include <infiniband/mlx5dv.h>
+])
+AM_CONDITIONAL([DEVX], [test -n "$devx"])
+
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
 
@@ -161,7 +166,12 @@ if test x$Vxlan_exp = x1 || test x$Vxlan = x1; then
 	AC_DEFINE(HAVE_VXLAN, 1, [Vxlan is supported])
 fi
 
-AC_CHECK_DECL([IBV_EXP_SIG_TYPE_T10_DIF], [sig_handover=1], [], [
+AC_CHECK_DECL([IBV_EXP_SIG_TYPE_T10_DIF], [
+    sig_handover=1
+    AC_CHECK_DECLS([IBV_EXP_SIG_TYPE_CRC32], [], [], [
+#include <infiniband/verbs_exp.h>
+    ])
+], [], [
 #include <infiniband/verbs_exp.h>
 ])
 AM_CONDITIONAL([SIG_HANDOVER], [test x$sig_handover = x1])
@@ -176,7 +186,19 @@ AC_CHECK_LIB([mlx5], [mlx5dv_query_device],
 	    [AC_SUBST(LIB_MLX5, [-lmlx5])],
 	    [], [-libverbs])], [-libverbs])
 
-AC_CHECK_DECLS([MLX5DV_DCTYPE_DCT], [], [], [[
+AC_CHECK_DECLS([IBV_CREATE_CQ_ATTR_IGNORE_OVERRUN], [], [], [[
+#include <infiniband/verbs.h>
+]])
+
+AC_CHECK_DECLS([IBV_EXP_DEVICE_ATTR_RESERVED_2], [], [], [[
+#include <infiniband/verbs_exp.h>
+]])
+
+AC_CHECK_HEADERS([infiniband/mlx5dv.h])
+AC_CHECK_DECLS([
+	mlx5dv_init_obj,
+	MLX5DV_DCTYPE_DCT,
+	MLX5DV_CONTEXT_FLAGS_DEVX], [], [], [[
 #include <infiniband/mlx5dv.h>
 ]])
 
