@@ -708,6 +708,7 @@ TYPED_TEST(odp_spec, s0) {
 #if HAVE_DECL_MLX5DV_CONTEXT_FLAGS_DEVX
 #include "../devx/devx_prm.h"
 
+#if 0
 enum {
 	MLX5_WQE_UMR_CTRL_FLAG_INLINE =			1 << 7,
 	MLX5_WQE_UMR_CTRL_FLAG_CHECK_FREE =		1 << 5,
@@ -781,51 +782,80 @@ struct mlx5_wqe_mkey_context_seg {
 	__be32		reserved;
 	union mlx5_wqe_umr_inline_seg inseg[0];
 };
+#endif
 
-struct devx_klm : public ibvt_abstract_mr {
+static inline int ilog2(int n)
+{
+	int t;
+
+	if (n <= 0)
+		return -1;
+
+	t = 0;
+	while ((1 << t) < n)
+		++t;
+
+	return t;
+}
+
+struct devx_indirect_mr : public ibvt_abstract_mr {
 	struct mlx5dv_devx_obj *dvmr;
 	ibvt_mr &sub_mr;
 	ibvt_qp &umr_qp;
 	uint32_t mkey;
 
-	devx_klm(ibvt_mr &m, ibvt_qp &q) :
+	devx_indirect_mr(ibvt_mr &m, ibvt_qp &q) :
 		ibvt_abstract_mr(m.env, m.size, m.addr),
+		dvmr(NULL),
 		sub_mr(m),
 		umr_qp(q) {}
 
 	virtual void init() {
-		uint32_t in[DEVX_ST_SZ_DW(create_mkey_in)] = {0};
+		uint32_t in[DEVX_ST_SZ_DW(create_mkey_in) + 0x20] = {0};
 		uint32_t out[DEVX_ST_SZ_DW(create_mkey_out)] = {0};
-		struct mlx5dv_obj dv = {};
-		struct mlx5dv_pd dvpd = {};
-
 		sub_mr.init();
 
-		buff = (char *)addr;
-		dv.pd.in = sub_mr.pd.pd;
-		dv.pd.out = &dvpd;
-		mlx5dv_init_obj(&dv, MLX5DV_OBJ_PD);
+		buff = (char *)sub_mr.buff;
 
 		DEVX_SET(create_mkey_in, in, opcode, MLX5_CMD_OP_CREATE_MKEY);
-		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.access_mode_1_0, MLX5_MKC_ACCESS_MODE_KLMS);
-		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.a, 1);
-		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.rw, 1);
-		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.rr, 1);
-		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.lw, 1);
-		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.lr, 1);
-		DEVX_SET64(create_mkey_in, in, memory_key_mkey_entry.start_addr, (intptr_t)buff);
-		DEVX_SET64(create_mkey_in, in, memory_key_mkey_entry.len, size);
-		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.pd, dvpd.pdn);
-		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.translations_octword_size, 1);
-		//DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.log_entity_size, 12);
-		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.qpn, 0xffffff);
-		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.mkey_7_0, 0x42);
-		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.free, 1);
-		DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.umr_en, 1);
+		set_mkc(DEVX_ADDR_OF(create_mkey_in, in, memory_key_mkey_entry));
+
+		set_klm(in);
 
 		SET(dvmr, mlx5dv_devx_obj_create(sub_mr.pd.ctx.ctx, in, sizeof(in), out, sizeof(out)));
 		mkey = DEVX_GET(create_mkey_out, out, mkey_index) << 8 | 0x42;
 
+		INIT(umr());
+	}
+
+	virtual void set_mkc(char *mkc) {
+		struct mlx5dv_obj dv = {};
+		struct mlx5dv_pd dvpd = {};
+
+		dv.pd.in = sub_mr.pd.pd;
+		dv.pd.out = &dvpd;
+		mlx5dv_init_obj(&dv, MLX5DV_OBJ_PD);
+
+		DEVX_SET(mkc, mkc, a, 1);
+		DEVX_SET(mkc, mkc, rw, 1);
+		DEVX_SET(mkc, mkc, rr, 1);
+		DEVX_SET(mkc, mkc, lw, 1);
+		DEVX_SET(mkc, mkc, lr, 1);
+		DEVX_SET(mkc, mkc, pd, dvpd.pdn);
+		DEVX_SET(mkc, mkc, translations_octword_size, 2);
+		DEVX_SET(mkc, mkc, qpn, 0xffffff);
+		DEVX_SET(mkc, mkc, mkey_7_0, 0x42);
+	}
+
+	virtual void set_klm(uint32_t *in) {
+		struct mlx5_wqe_data_seg *dseg = (struct mlx5_wqe_data_seg *)DEVX_ADDR_OF(create_mkey_in, in, klm_pas_mtt);
+		mlx5dv_set_data_seg(dseg, size / 2, sub_mr.mr->lkey, (intptr_t)buff);
+		mlx5dv_set_data_seg(dseg + 1, size / 2, sub_mr.mr->lkey, (intptr_t)buff + size / 2);
+
+		DEVX_SET(create_mkey_in, in, translations_octword_actual_size, 2);
+	}
+
+	virtual void umr() {
 		struct mlx5_wqe_ctrl_seg *ctrl = (struct mlx5_wqe_ctrl_seg *)umr_qp.get_wqe(0);
 		mlx5dv_set_ctrl_seg(ctrl, umr_qp.sqi, MLX5_OPCODE_UMR, 0, umr_qp.qp->qp_num, 0, 12, 0, htobe32(mkey));
 
@@ -854,13 +884,15 @@ struct devx_klm : public ibvt_abstract_mr {
 		mk->len = htobe64(size);
 
 		struct mlx5_wqe_data_seg *dseg = (struct mlx5_wqe_data_seg *)umr_qp.get_wqe(2);
-		mlx5dv_set_data_seg(dseg, size, sub_mr.mr->lkey, (intptr_t)buff);
+		mlx5dv_set_data_seg(dseg, size / 2, sub_mr.mr->lkey, (intptr_t)buff);
+		mlx5dv_set_data_seg(dseg + 1, size / 2, sub_mr.mr->lkey, (intptr_t)buff + size / 2);
 
 		umr_qp.ring_db(3);
 	}
 
-	~devx_klm() {
-		mlx5dv_devx_obj_destroy(dvmr);
+	~devx_indirect_mr() {
+		if (dvmr)
+			mlx5dv_devx_obj_destroy(dvmr);
 	}
 
 	virtual uint32_t lkey() {
@@ -868,7 +900,65 @@ struct devx_klm : public ibvt_abstract_mr {
 	}
 };
 
-template <typename Mem>
+struct devx_klm_umr : public devx_indirect_mr {
+	devx_klm_umr(ibvt_mr &m, ibvt_qp &q) : devx_indirect_mr(m, q) {}
+
+	virtual void set_mkc(char *mkc) {
+		devx_indirect_mr::set_mkc(mkc);
+
+		DEVX_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_KLMS);
+		DEVX_SET(mkc, mkc, free, 1);
+		DEVX_SET(mkc, mkc, umr_en, 1);
+	}
+
+	virtual void set_klm(uint32_t *in) {}
+};
+
+struct devx_klm : public devx_indirect_mr {
+	devx_klm(ibvt_mr &m, ibvt_qp &q) : devx_indirect_mr(m, q) {}
+
+	virtual void set_mkc(char *mkc) {
+		devx_indirect_mr::set_mkc(mkc);
+
+		DEVX_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_KLMS);
+		DEVX_SET64(mkc, mkc, start_addr, (intptr_t)buff);
+		DEVX_SET64(mkc, mkc, len, size);
+	}
+
+	virtual void umr() {}
+};
+
+struct devx_ksm_umr : public devx_indirect_mr {
+	devx_ksm_umr(ibvt_mr &m, ibvt_qp &q) : devx_indirect_mr(m, q) {}
+
+	virtual void set_mkc(char *mkc) {
+		devx_indirect_mr::set_mkc(mkc);
+
+		DEVX_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_KSM);
+		DEVX_SET(mkc, mkc, log_entity_size, ilog2(size));
+		DEVX_SET(mkc, mkc, free, 1);
+		DEVX_SET(mkc, mkc, umr_en, 1);
+	}
+
+	virtual void set_klm(uint32_t *in) {}
+};
+
+struct devx_ksm : public devx_indirect_mr {
+	devx_ksm(ibvt_mr &m, ibvt_qp &q) : devx_indirect_mr(m, q) {}
+
+	virtual void set_mkc(char *mkc) {
+		devx_indirect_mr::set_mkc(mkc);
+
+		DEVX_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_KSM);
+		DEVX_SET(mkc, mkc, log_entity_size, ilog2(size));
+		DEVX_SET64(mkc, mkc, start_addr, (intptr_t)buff);
+		DEVX_SET64(mkc, mkc, len, size);
+	}
+
+	virtual void umr() {}
+};
+
+template <typename Mem, typename Mr>
 struct odp_mem_devx : public Mem {
 	ibvt_mr *fsrc;
 	ibvt_mr *fdst;
@@ -895,17 +985,16 @@ struct odp_mem_devx : public Mem {
 		fsrc = (ibvt_mr *)this->psrc;
 		fdst = (ibvt_mr *)this->pdst;
 
-		SET(this->psrc, new devx_klm(*fsrc, umr_qp));
-		SET(this->pdst, new devx_klm(*fdst, umr_qp));
+		SET(this->psrc, new Mr(*fsrc, umr_qp));
+		SET(this->pdst, new Mr(*fdst, umr_qp));
 	}
 
 	virtual void unreg() {
+		EXEC(Mem::unreg());
 		if (fsrc)
 			delete fsrc;
 		if (fdst)
 			delete fdst;
-
-		EXEC(Mem::unreg());
 	}
 
 	virtual void check_stats_before() { }
@@ -918,15 +1007,42 @@ template <typename T>
 struct odp_devx : public odp<T> { odp_devx(): odp<T>() {} };
 
 typedef testing::Types<
-	types<odp_mem_devx<odp_off>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
-	types<odp_mem_devx<odp_off>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
-	types<odp_mem_devx<odp_off>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
-	types<odp_mem_devx<odp_explicit>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
-	types<odp_mem_devx<odp_explicit>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
-	types<odp_mem_devx<odp_explicit>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
-	types<odp_mem_devx<odp_implicit>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
-	types<odp_mem_devx<odp_implicit>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
-	types<odp_mem_devx<odp_implicit>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >
+	types<odp_mem_devx<odp_off, devx_klm>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off, devx_klm>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off, devx_klm>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit, devx_klm>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit, devx_klm>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit, devx_klm>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit, devx_klm>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit, devx_klm>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit, devx_klm>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off, devx_ksm>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off, devx_ksm>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off, devx_ksm>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit, devx_ksm>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit, devx_ksm>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit, devx_ksm>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit, devx_ksm>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit, devx_ksm>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit, devx_ksm>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off, devx_klm_umr>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off, devx_klm_umr>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off, devx_klm_umr>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit, devx_klm_umr>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit, devx_klm_umr>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit, devx_klm_umr>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit, devx_klm_umr>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit, devx_klm_umr>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit, devx_klm_umr>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off, devx_ksm_umr>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off, devx_ksm_umr>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_off, devx_ksm_umr>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit, devx_ksm_umr>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit, devx_ksm_umr>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_explicit, devx_ksm_umr>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit, devx_ksm_umr>, odp_rc_devx, odp_send<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit, devx_ksm_umr>, odp_rc_devx, odp_rdma_read<ibvt_ctx_devx> >,
+	types<odp_mem_devx<odp_implicit, devx_ksm_umr>, odp_rc_devx, odp_rdma_write<ibvt_ctx_devx> >
 > odp_devx_list_spec;
 
 TYPED_TEST_CASE(odp_devx, odp_devx_list_spec);
@@ -937,5 +1053,33 @@ TYPED_TEST(odp_devx, t0_crossbound) {
 		  (1ULL<<(32+2))-PAGE,
 		  PAGE * 2));
 }
+
+TYPED_TEST(odp_devx, t1_upper) {
+	ODP_CHK_SUT(PAGE);
+	EXEC(test(UP - 0x10000 * 1,
+		  UP - 0x10000 * 2,
+		  0x2000));
+}
+
+TYPED_TEST(odp_devx, t2_sequence) {
+	ODP_CHK_SUT(PAGE);
+	unsigned long p = 0x2000000000;
+	for (int i = 0; i < 20; i++) {
+		EXEC(test(p, p+PAGE, PAGE));
+		p += PAGE * 2;
+	}
+}
+
+TYPED_TEST(odp_devx, t3_1b) {
+	ODP_CHK_SUT(PAGE);
+	unsigned long p = 0x2000000000;
+	EXEC(test(p, p+PAGE, PAGE, PAGE/0x10));
+}
+
+TYPED_TEST(odp_devx, t4_6M) {
+	ODP_CHK_SUT(0x600000);
+	EXEC(test(0,0,0x600000,0x10));
+}
+
 #endif
 
