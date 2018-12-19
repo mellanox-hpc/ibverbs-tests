@@ -802,13 +802,15 @@ struct devx_indirect_mr : public ibvt_abstract_mr {
 	struct mlx5dv_devx_obj *dvmr;
 	ibvt_mr &sub_mr;
 	ibvt_qp &umr_qp;
+	ibvt_cq &umr_cq;
 	uint32_t mkey;
 
-	devx_indirect_mr(ibvt_mr &m, ibvt_qp &q) :
+	devx_indirect_mr(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) :
 		ibvt_abstract_mr(m.env, m.size, m.addr),
 		dvmr(NULL),
 		sub_mr(m),
-		umr_qp(q) {}
+		umr_qp(q),
+		umr_cq(c) {}
 
 	virtual void init() {
 		uint32_t in[DEVX_ST_SZ_DW(create_mkey_in) + 0x20] = {0};
@@ -857,7 +859,9 @@ struct devx_indirect_mr : public ibvt_abstract_mr {
 
 	virtual void umr() {
 		struct mlx5_wqe_ctrl_seg *ctrl = (struct mlx5_wqe_ctrl_seg *)umr_qp.get_wqe(0);
-		mlx5dv_set_ctrl_seg(ctrl, umr_qp.sqi, MLX5_OPCODE_UMR, 0, umr_qp.qp->qp_num, 0, 12, 0, htobe32(mkey));
+		mlx5dv_set_ctrl_seg(ctrl, umr_qp.sqi, MLX5_OPCODE_UMR, 0,
+				    umr_qp.qp->qp_num, MLX5_WQE_CTRL_CQ_UPDATE, 
+				    12, 0, htobe32(mkey));
 
 		struct mlx5_wqe_umr_ctrl_seg *umr = (struct mlx5_wqe_umr_ctrl_seg *)(ctrl + 1);
 		umr->flags = MLX5_WQE_UMR_CTRL_FLAG_INLINE;
@@ -888,6 +892,8 @@ struct devx_indirect_mr : public ibvt_abstract_mr {
 		mlx5dv_set_data_seg(dseg + 1, size / 2, sub_mr.mr->lkey, (intptr_t)buff + size / 2);
 
 		umr_qp.ring_db(3);
+
+		umr_cq.poll();
 	}
 
 	~devx_indirect_mr() {
@@ -901,7 +907,7 @@ struct devx_indirect_mr : public ibvt_abstract_mr {
 };
 
 struct devx_klm_umr : public devx_indirect_mr {
-	devx_klm_umr(ibvt_mr &m, ibvt_qp &q) : devx_indirect_mr(m, q) {}
+	devx_klm_umr(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) : devx_indirect_mr(m, q, c) {}
 
 	virtual void set_mkc(char *mkc) {
 		devx_indirect_mr::set_mkc(mkc);
@@ -915,7 +921,7 @@ struct devx_klm_umr : public devx_indirect_mr {
 };
 
 struct devx_klm : public devx_indirect_mr {
-	devx_klm(ibvt_mr &m, ibvt_qp &q) : devx_indirect_mr(m, q) {}
+	devx_klm(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) : devx_indirect_mr(m, q, c) {}
 
 	virtual void set_mkc(char *mkc) {
 		devx_indirect_mr::set_mkc(mkc);
@@ -929,7 +935,7 @@ struct devx_klm : public devx_indirect_mr {
 };
 
 struct devx_ksm_umr : public devx_indirect_mr {
-	devx_ksm_umr(ibvt_mr &m, ibvt_qp &q) : devx_indirect_mr(m, q) {}
+	devx_ksm_umr(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) : devx_indirect_mr(m, q, c) {}
 
 	virtual void set_mkc(char *mkc) {
 		devx_indirect_mr::set_mkc(mkc);
@@ -944,7 +950,7 @@ struct devx_ksm_umr : public devx_indirect_mr {
 };
 
 struct devx_ksm : public devx_indirect_mr {
-	devx_ksm(ibvt_mr &m, ibvt_qp &q) : devx_indirect_mr(m, q) {}
+	devx_ksm(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) : devx_indirect_mr(m, q, c) {}
 
 	virtual void set_mkc(char *mkc) {
 		devx_indirect_mr::set_mkc(mkc);
@@ -985,8 +991,8 @@ struct odp_mem_devx : public Mem {
 		fsrc = (ibvt_mr *)this->psrc;
 		fdst = (ibvt_mr *)this->pdst;
 
-		SET(this->psrc, new Mr(*fsrc, umr_qp));
-		SET(this->pdst, new Mr(*fdst, umr_qp));
+		SET(this->psrc, new Mr(*fsrc, umr_qp, umr_cq));
+		SET(this->pdst, new Mr(*fdst, umr_qp, umr_cq));
 	}
 
 	virtual void unreg() {
