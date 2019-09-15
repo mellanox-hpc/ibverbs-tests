@@ -135,6 +135,10 @@ AC_CHECK_DECLS([mlx5dv_devx_general_cmd], [devx=1], [], [
 ])
 AM_CONDITIONAL([DEVX], [test -n "$devx"])
 
+AC_CHECK_DECLS([__devx_nullp], [], [], [
+#include <infiniband/mlx5dv.h>
+])
+
 dnl Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
 

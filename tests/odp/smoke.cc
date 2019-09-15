@@ -279,7 +279,7 @@ struct odp_qp : public odp_trans {
 typedef odp_qp<ibvt_qp_rc, ibvt_ctx> odp_rc;
 //typedef odp_qp<ibvt_qp_rc, ibvt_ctx_devx> odp_rc_devx;
 
-#if HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_DC
 struct odp_side_dci : public odp_side {
 	ibvt_cq cq;
 	ibvt_qp_dc qp;
@@ -343,11 +343,18 @@ struct odp_dc : public odp_trans {
 	}
 	virtual void rdma_dst(ibv_sge src_sge, ibv_sge dst_sge,
 			      enum ibv_wr_opcode opcode) {
-		FAIL();
+		src.qp.rdma(src_sge, dst_sge, opcode);
 	}
 	virtual void poll_src() { src.cq.poll(); }
 	virtual void poll_dst() { dst.cq.poll(); }
 
+};
+
+struct odp_dc2 : public odp_dc {
+	odp_dc2(odp_base<ibvt_ctx> &e) :
+		odp_dc(e) {}
+
+	virtual void poll_dst() { src.cq.poll(); }
 };
 #endif
 
@@ -415,11 +422,11 @@ struct odp_implicit : public odp_mem {
 	}
 };
 
-#if HAVE_INFINIBAND_VERBS_EXP_H
 struct ibvt_qp_rc_umr : public ibvt_qp_rc {
 	ibvt_qp_rc_umr(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) :
 		ibvt_qp_rc(e, p, c) {}
 
+#if HAVE_INFINIBAND_VERBS_EXP_H
 	virtual void init_attr(struct ibv_qp_init_attr_ex &attr) {
 		ibvt_qp_rc::init_attr(attr);
 		attr.comp_mask |= IBV_EXP_QP_INIT_ATTR_CREATE_FLAGS;
@@ -427,6 +434,7 @@ struct ibvt_qp_rc_umr : public ibvt_qp_rc {
 		attr.exp_create_flags |= IBV_EXP_QP_CREATE_UMR;
 		attr.max_inl_send_klms = 3;
 	}
+#endif
 };
 
 typedef odp_qp<ibvt_qp_rc_umr, ibvt_ctx> odp_rc_umr;
@@ -440,7 +448,6 @@ struct odp_implicit_mw : public odp_implicit {
 		SET(pdst, new ibvt_mw(dimr, dst_addr, len, sdst.get_qp()));
 	}
 };
-#endif
 
 #define ODP_CHK_SUT(len) \
 	CHK_SUT(odp); \
@@ -561,16 +568,19 @@ typedef testing::Types<
 	types<odp_hugetlb, odp_rc, odp_rdma_read<ibvt_ctx> >,
 	types<odp_hugetlb, odp_rc, odp_rdma_write<ibvt_ctx> >,
 #endif
-#if HAVE_INFINIBAND_VERBS_EXP_H
+
+#if HAVE_DC
 	types<odp_explicit, odp_dc, odp_rdma_write<ibvt_ctx> >,
 	types<odp_implicit, odp_dc, odp_rdma_write<ibvt_ctx> >,
 	types<odp_off, odp_dc, odp_send<ibvt_ctx> >,
 	types<odp_off, odp_dc, odp_rdma_write<ibvt_ctx> >,
+	types<odp_off, odp_dc2, odp_rdma_read<ibvt_ctx> >,
+#endif
 
 	types<odp_implicit_mw, odp_rc_umr, odp_send<ibvt_ctx> >,
 	types<odp_implicit_mw, odp_rc_umr, odp_rdma_read<ibvt_ctx> >,
 	types<odp_implicit_mw, odp_rc_umr, odp_rdma_write<ibvt_ctx> >,
-#endif
+
 	types<odp_off, odp_rc, odp_send<ibvt_ctx> >,
 	types<odp_off, odp_rc, odp_rdma_read<ibvt_ctx> >,
 	types<odp_off, odp_rc, odp_rdma_write<ibvt_ctx> >
@@ -830,7 +840,7 @@ struct devx_indirect_mr : public ibvt_abstract_mr {
 		INIT(umr());
 	}
 
-	virtual void set_mkc(char *mkc) {
+	virtual void set_mkc(unsigned char *mkc) {
 		struct mlx5dv_obj dv = {};
 		struct mlx5dv_pd dvpd = {};
 
@@ -909,7 +919,7 @@ struct devx_indirect_mr : public ibvt_abstract_mr {
 struct devx_klm_umr : public devx_indirect_mr {
 	devx_klm_umr(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) : devx_indirect_mr(m, q, c) {}
 
-	virtual void set_mkc(char *mkc) {
+	virtual void set_mkc(unsigned char *mkc) {
 		devx_indirect_mr::set_mkc(mkc);
 
 		DEVX_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_KLMS);
@@ -923,7 +933,7 @@ struct devx_klm_umr : public devx_indirect_mr {
 struct devx_klm : public devx_indirect_mr {
 	devx_klm(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) : devx_indirect_mr(m, q, c) {}
 
-	virtual void set_mkc(char *mkc) {
+	virtual void set_mkc(unsigned char *mkc) {
 		devx_indirect_mr::set_mkc(mkc);
 
 		DEVX_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_KLMS);
@@ -937,7 +947,7 @@ struct devx_klm : public devx_indirect_mr {
 struct devx_ksm_umr : public devx_indirect_mr {
 	devx_ksm_umr(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) : devx_indirect_mr(m, q, c) {}
 
-	virtual void set_mkc(char *mkc) {
+	virtual void set_mkc(unsigned char *mkc) {
 		devx_indirect_mr::set_mkc(mkc);
 
 		DEVX_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_KSM);
@@ -952,7 +962,7 @@ struct devx_ksm_umr : public devx_indirect_mr {
 struct devx_ksm : public devx_indirect_mr {
 	devx_ksm(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) : devx_indirect_mr(m, q, c) {}
 
-	virtual void set_mkc(char *mkc) {
+	virtual void set_mkc(unsigned char *mkc) {
 		devx_indirect_mr::set_mkc(mkc);
 
 		DEVX_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_KSM);

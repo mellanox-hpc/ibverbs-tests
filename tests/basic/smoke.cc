@@ -208,8 +208,20 @@ struct srq_test : public testing::Test, public ibvt_env {
 		EXEC(srq.recv(dst_mr.sge(start, length)));
 	}
 
+	void rdma() {
+		FAIL();
+	}
+
+	void rdma_write(intptr_t start, size_t length) {
+		EXEC(send_qp.rdma(src_mr.sge(), dst_mr.sge(), IBV_WR_RDMA_WRITE));
+	}
+
+	void rdma_read(intptr_t start, size_t length) {
+		EXEC(send_qp.rdma(dst_mr.sge(), src_mr.sge(), IBV_WR_RDMA_READ));
+	}
+
 	void check(int count) {
-		EXEC(dst_mr.check(this->send_qp.hdr_len(), 0, count));
+		EXEC(dst_mr.check(send_qp.hdr_len(), 0, count));
 	}
 
 	virtual void SetUp() {
@@ -238,6 +250,22 @@ TYPED_TEST(srq_test, t0) {
 	EXEC(recv(0, SZ));
 	EXEC(send(0, SZ));
 	EXEC(cq.poll());
+	EXEC(cq.poll());
+	EXEC(check(1));
+}
+
+TYPED_TEST(srq_test, t1) {
+	CHK_SUT(basic);
+	if (!this->send_qp.has_rdma()) SKIP(1);
+	EXEC(rdma_read(0, SZ));
+	EXEC(cq.poll());
+	EXEC(check(1));
+}
+
+TYPED_TEST(srq_test, t2) {
+	CHK_SUT(basic);
+	if (!this->send_qp.has_rdma()) SKIP(1);
+	EXEC(rdma_write(0, SZ));
 	EXEC(cq.poll());
 	EXEC(check(1));
 }

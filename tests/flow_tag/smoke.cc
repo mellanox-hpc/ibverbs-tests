@@ -402,7 +402,7 @@ struct ibvt_raw_qp : public ibvt_qp {
         	memcpy(buf,sendbuf,tx_len);
 	}
 	
-
+	virtual int has_rdma() { return 0; }
 };
 
 struct flow_tag_test : public testing::Test, public ibvt_env {

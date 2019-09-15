@@ -567,9 +567,13 @@ struct ibvt_ctx : public ibvt_obj {
 
 		dev_list = ibv_get_device_list(&num_devices);
 		for (int devn = 0; devn < num_devices; devn++) {
+			if (getenv("IBV_DEV") && strcmp(ibv_get_device_name(dev_list[devn]), getenv("IBV_DEV")))
+				continue;
 			if (other && other->dev == dev_list[devn])
 				continue;
-			SET(ctx, open_device(dev_list[devn]));
+			ctx = open_device(dev_list[devn]);
+			if (!ctx)
+				continue;
 			memset(&dev_attr, 0, sizeof(dev_attr));
 			DO(ibv_query_device_(ctx, &dev_attr, dev_attr_orig));
 			for (int port = 1; port <= dev_attr_orig->phys_port_cnt; port++) {
@@ -1135,6 +1139,8 @@ struct ibvt_qp : public ibvt_obj {
 	virtual void connect(ibvt_qp *remote) = 0;
 
 	virtual int hdr_len() { return 0; }
+
+	virtual int has_rdma() = 0;
 };
 
 struct ibvt_qp_rc : public ibvt_qp {
@@ -1196,12 +1202,14 @@ struct ibvt_qp_rc : public ibvt_qp {
 
 		DO(ibv_modify_qp(qp, &attr, flags));
 	}
+
+	virtual int has_rdma() { return 1; }
 };
 
 struct ibvt_qp_ud : public ibvt_qp_rc {
 	struct ibv_ah *ah;
 
-	ibvt_qp_ud(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) : ibvt_qp_rc(e, p, c) {}
+	ibvt_qp_ud(ibvt_env &e, ibvt_pd &p, ibvt_cq &c) : ibvt_qp_rc(e, p, c), ah(NULL) {}
 
 	virtual ~ibvt_qp_ud() {
 		FREE(ibv_destroy_ah, ah);
@@ -1279,6 +1287,8 @@ struct ibvt_qp_ud : public ibvt_qp_rc {
 	}
 
 	virtual int hdr_len() { return 40; }
+
+	virtual int has_rdma() { return 0; }
 };
 
 #if HAVE_INFINIBAND_VERBS_EXP_H
@@ -1307,7 +1317,8 @@ struct ibvt_dct : public ibvt_obj {
 		attr.srq = srq.srq;
 		attr.dc_key = DC_KEY;
 		attr.port = pd.ctx.port_num;
-		attr.access_flags = IBV_ACCESS_REMOTE_WRITE;
+		attr.access_flags = IBV_ACCESS_REMOTE_WRITE |
+				    IBV_ACCESS_REMOTE_READ;
 		attr.min_rnr_timer = 2;
 		attr.mtu = IBV_MTU_512;
 		attr.hop_limit = 1;
@@ -1353,10 +1364,17 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 		memset(&attr, 0, sizeof(attr));
 		attr.qp_state = IBV_QPS_RTR;
 		attr.path_mtu = IBV_MTU_512;
-		attr.ah_attr.is_global = 0;
 		flags = IBV_EXP_QP_STATE | IBV_EXP_QP_PATH_MTU |
 			IBV_EXP_QP_AV;
 
+		if (!pd.ctx.grh_required()) {
+			attr.ah_attr.is_global = 0;
+		} else {
+			attr.ah_attr.is_global = 1;
+			attr.ah_attr.grh.hop_limit = 1;
+			attr.ah_attr.grh.dgid = remote->pd.ctx.gid;
+			attr.ah_attr.grh.sgid_index = 0;
+		}
 
 		attr.ah_attr.dlid = dremote->pd.ctx.lid;
 		attr.ah_attr.sl = 0;
@@ -1418,6 +1436,8 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 
 		DO(ibv_post_send(qp, &wr, &bad_wr));
 	}
+
+	virtual int has_rdma() { return 1; }
 };
 
 
@@ -1461,7 +1481,8 @@ struct ibvt_dct : public ibvt_obj {
 		attr.port_num	     = pd.ctx.port_num;
 		attr.qp_access_flags = IBV_ACCESS_LOCAL_WRITE |
 				       IBV_ACCESS_REMOTE_READ |
-				       IBV_ACCESS_REMOTE_WRITE;
+				       IBV_ACCESS_REMOTE_WRITE |
+				       IBV_ACCESS_REMOTE_ATOMIC;
 
 		DO(ibv_modify_qp(dct, &attr, IBV_QP_STATE |
 					IBV_QP_PKEY_INDEX |
@@ -1472,6 +1493,7 @@ struct ibvt_dct : public ibvt_obj {
 		attr.qp_state		       = IBV_QPS_RTR;
 		attr.path_mtu		       = IBV_MTU_512;
 		attr.min_rnr_timer	       = 2;
+		attr.ah_attr.is_global = 1;
 		attr.ah_attr.grh.hop_limit     = 1;
 		attr.ah_attr.port_num	       = pd.ctx.port_num;
 
@@ -1533,8 +1555,18 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 		memset(&attr, 0, sizeof(attr));
 		attr.qp_state = IBV_QPS_RTR;
 		attr.path_mtu = IBV_MTU_512;
-		attr.ah_attr.is_global = 0;
-		flags = IBV_QP_STATE | IBV_QP_PATH_MTU;
+		flags = IBV_QP_STATE |
+			IBV_QP_PATH_MTU |
+			IBV_QP_AV;
+
+		if (!pd.ctx.grh_required()) {
+			attr.ah_attr.is_global = 0;
+		} else {
+			attr.ah_attr.is_global = 1;
+			attr.ah_attr.grh.hop_limit = 1;
+			attr.ah_attr.grh.dgid = remote->pd.ctx.gid;
+			attr.ah_attr.grh.sgid_index = 0;
+		}
 
 		attr.ah_attr.dlid = dremote->pd.ctx.lid;
 		attr.ah_attr.sl = 0;
@@ -1583,8 +1615,37 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 	}
 
 	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode, enum ibv_send_flags flags = IBV_SEND_SIGNALED) {
-		FAIL();
+		uint8_t mac[6] = {}, gid[16] = {};
+		uint8_t fm_ce_se = 0, op, ds = 6;
+
+		if (flags == IBV_SEND_SIGNALED)
+			fm_ce_se |= MLX5_WQE_CTRL_CQ_UPDATE;
+		if (opcode == IBV_WR_RDMA_WRITE)
+			op = MLX5_OPCODE_RDMA_WRITE;
+		else if (opcode == IBV_WR_RDMA_READ)
+			op = MLX5_OPCODE_RDMA_READ;
+		else
+			FAIL();
+
+		struct mlx5_wqe_ctrl_seg *ctrl = (struct mlx5_wqe_ctrl_seg *)get_wqe(0);
+		mlx5dv_set_ctrl_seg(ctrl, sqi, op, 0, qp->qp_num, fm_ce_se, ds, 0, 0);
+
+		struct mlx5_wqe_datagram_seg *avseg = (struct mlx5_wqe_datagram_seg *)(ctrl + 1);
+		mlx5dv_set_dgram_seg(avseg, DC_KEY, dremote->dct->qp_num, 1, 0,
+				     dremote->pd.ctx.lid, dremote->pd.ctx.lid,
+				     mac, 0, 1, 0, gid);
+
+		struct mlx5_wqe_raddr_seg *raddr = (struct mlx5_wqe_raddr_seg *)(avseg + 1);
+		raddr->raddr = htobe64(dst_sge.addr);
+		raddr->rkey  = htonl(dst_sge.lkey);
+
+		struct mlx5_wqe_data_seg *dseg = (struct mlx5_wqe_data_seg *)(raddr + 1);
+		mlx5dv_set_data_seg(dseg, src_sge.length, src_sge.lkey, (intptr_t)src_sge.addr);
+
+		ring_db(2);
 	}
+
+	virtual int has_rdma() { return 1; }
 };
 
 #endif
@@ -1603,13 +1664,24 @@ struct ibvt_qp_srq : public QP {
 
 };
 
-#if HAVE_INFINIBAND_VERBS_EXP_H
 struct ibvt_mw : public ibvt_mr {
 	ibvt_mr &master;
 	ibvt_qp &qp;
 
 	ibvt_mw(ibvt_mr &i, intptr_t a, size_t size, ibvt_qp &q) :
 		ibvt_mr(i.env, i.pd, size, a), master(i), qp(q) {}
+
+#ifndef HAVE_INFINIBAND_VERBS_EXP_H
+	struct ibv_mw *mw;
+
+	virtual uint32_t lkey() {
+		return mw->rkey;
+	}
+
+	virtual ~ibvt_mw() {
+		FREE(ibv_dealloc_mw, mw);
+	}
+#endif
 
 	virtual void init() {
 		intptr_t addr;
@@ -1623,6 +1695,7 @@ struct ibvt_mw : public ibvt_mr {
 			addr = (intptr_t)buff;
 		}
 
+#if HAVE_INFINIBAND_VERBS_EXP_H
 		struct ibv_exp_create_mr_in mr_in = {};
 		mr_in.pd = pd.pd;
 		mr_in.attr.create_flags = IBV_EXP_MR_INDIRECT_KLMS;
@@ -1649,9 +1722,17 @@ struct ibvt_mw : public ibvt_mr {
 		wr.exp_send_flags = IBV_EXP_SEND_INLINE;
 
 		DO(ibv_exp_post_send(qp.qp, &wr, &bad_wr));
+#else
+		SET(mw, ibv_alloc_mw(pd.pd, IBV_MW_TYPE_1));
+
+		struct ibv_mw_bind mw_bind;
+		mw_bind.bind_info.addr = addr;
+		mw_bind.bind_info.length = size;
+		mw_bind.bind_info.mr = master.mr;
+		mw_bind.bind_info.mw_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+		DO(ibv_bind_mw(qp.qp, mw, &mw_bind));
+#endif
 	}
 };
-#endif
 
 #endif
-
