@@ -279,7 +279,7 @@ struct odp_qp : public odp_trans {
 typedef odp_qp<ibvt_qp_rc, ibvt_ctx> odp_rc;
 //typedef odp_qp<ibvt_qp_rc, ibvt_ctx_devx> odp_rc_devx;
 
-#if HAVE_INFINIBAND_VERBS_EXP_H
+#if HAVE_DC
 struct odp_side_dci : public odp_side {
 	ibvt_cq cq;
 	ibvt_qp_dc qp;
@@ -343,11 +343,18 @@ struct odp_dc : public odp_trans {
 	}
 	virtual void rdma_dst(ibv_sge src_sge, ibv_sge dst_sge,
 			      enum ibv_wr_opcode opcode) {
-		FAIL();
+		src.qp.rdma(src_sge, dst_sge, opcode);
 	}
 	virtual void poll_src() { src.cq.poll(); }
 	virtual void poll_dst() { dst.cq.poll(); }
 
+};
+
+struct odp_dc2 : public odp_dc {
+	odp_dc2(odp_base<ibvt_ctx> &e) :
+		odp_dc(e) {}
+
+	virtual void poll_dst() { src.cq.poll(); }
 };
 #endif
 
@@ -561,12 +568,16 @@ typedef testing::Types<
 	types<odp_hugetlb, odp_rc, odp_rdma_read<ibvt_ctx> >,
 	types<odp_hugetlb, odp_rc, odp_rdma_write<ibvt_ctx> >,
 #endif
-#if HAVE_INFINIBAND_VERBS_EXP_H
+
+#if HAVE_DC
 	types<odp_explicit, odp_dc, odp_rdma_write<ibvt_ctx> >,
 	types<odp_implicit, odp_dc, odp_rdma_write<ibvt_ctx> >,
 	types<odp_off, odp_dc, odp_send<ibvt_ctx> >,
 	types<odp_off, odp_dc, odp_rdma_write<ibvt_ctx> >,
+	types<odp_off, odp_dc2, odp_rdma_read<ibvt_ctx> >,
+#endif
 
+#if HAVE_INFINIBAND_VERBS_EXP_H
 	types<odp_implicit_mw, odp_rc_umr, odp_send<ibvt_ctx> >,
 	types<odp_implicit_mw, odp_rc_umr, odp_rdma_read<ibvt_ctx> >,
 	types<odp_implicit_mw, odp_rc_umr, odp_rdma_write<ibvt_ctx> >,
