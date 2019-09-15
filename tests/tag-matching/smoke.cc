@@ -224,6 +224,15 @@ struct ibvt_srq_tm : public ibvt_srq {
 		DO(ibv_post_srq_ops(srq, &wr, &bad_wr));
 	}
 
+	virtual void arm()
+	{
+		struct ibv_srq_attr srq_attr;
+		srq_attr.max_wr = 10;
+		srq_attr.max_sge = 1;
+		srq_attr.srq_limit = 16;
+		DO(ibv_modify_srq (srq, &srq_attr, IBV_SRQ_LIMIT));
+	}
+
 };
 
 struct ibvt_qp_tm_rc : public ibvt_qp_rc {
@@ -538,6 +547,7 @@ TYPED_TEST_CASE(tag_matching, tm_cq_list);
 
 TYPED_TEST(tag_matching, e0_unexp) {
 	CHK_SUT(tag-matching);
+	EXEC(srq.arm());
 	EXEC(recv(0, this->SZ()));
 	EXEC(fix_uwq());
 	EXEC(eager(0, this->SZ(), 0x12345));
