@@ -659,7 +659,7 @@ TEST_F(sig_test_pipeline, p2) {
 
 TEST_F(sig_test_pipeline, p3) {
 	CHK_SUT(sig_handover);
-	for (long i = 0; i < 100; i++) {
+	for (long j = 0; j < 100; j++) {
 		EXEC(config(this->strip_mr, this->mid_mr.sge(), this->sig(), this->nosig()));
 		EXEC(recv_qp.recv(this->dst_mr.sge()));
 		EXEC(recv_qp.recv(this->dst_mr.sge()));
