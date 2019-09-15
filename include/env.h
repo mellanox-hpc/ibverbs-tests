@@ -1660,13 +1660,24 @@ struct ibvt_qp_srq : public QP {
 
 };
 
-#if HAVE_INFINIBAND_VERBS_EXP_H
 struct ibvt_mw : public ibvt_mr {
 	ibvt_mr &master;
 	ibvt_qp &qp;
 
 	ibvt_mw(ibvt_mr &i, intptr_t a, size_t size, ibvt_qp &q) :
 		ibvt_mr(i.env, i.pd, size, a), master(i), qp(q) {}
+
+#ifndef HAVE_INFINIBAND_VERBS_EXP_H
+	struct ibv_mw *mw;
+
+	virtual uint32_t lkey() {
+		return mw->rkey;
+	}
+
+	virtual ~ibvt_mw() {
+		FREE(ibv_dealloc_mw, mw);
+	}
+#endif
 
 	virtual void init() {
 		intptr_t addr;
@@ -1680,6 +1691,7 @@ struct ibvt_mw : public ibvt_mr {
 			addr = (intptr_t)buff;
 		}
 
+#if HAVE_INFINIBAND_VERBS_EXP_H
 		struct ibv_exp_create_mr_in mr_in = {};
 		mr_in.pd = pd.pd;
 		mr_in.attr.create_flags = IBV_EXP_MR_INDIRECT_KLMS;
@@ -1706,9 +1718,17 @@ struct ibvt_mw : public ibvt_mr {
 		wr.exp_send_flags = IBV_EXP_SEND_INLINE;
 
 		DO(ibv_exp_post_send(qp.qp, &wr, &bad_wr));
+#else
+		SET(mw, ibv_alloc_mw(pd.pd, IBV_MW_TYPE_1));
+
+		struct ibv_mw_bind mw_bind;
+		mw_bind.bind_info.addr = addr;
+		mw_bind.bind_info.length = size;
+		mw_bind.bind_info.mr = master.mr;
+		mw_bind.bind_info.mw_access_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+		DO(ibv_bind_mw(qp.qp, mw, &mw_bind));
+#endif
 	}
 };
-#endif
 
 #endif
-
