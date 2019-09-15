@@ -2711,13 +2711,17 @@ struct mlx5_ifc_rqc_bits {
 	u8         reserved_at_80[0x8];
 	u8         rmpn[0x18];
 
-	u8         reserved_at_a0[0x8];
+	u8         dpp_wire_protocol[0x8];
 	u8         hairpin_peer_sq[0x18];
 
-	u8         reserved_at_c0[0x10];
+	u8         dpp_segment_size[0x10];
 	u8         hairpin_peer_vhca[0x10];
 
-	u8         reserved_at_e0[0xa0];
+	u8         dpp_mkey[0x20];
+
+	u8         dpp_buffer_size[0x20];
+
+	u8         reserved_at_120[0x60];
 
 	struct mlx5_ifc_wq_bits wq;
 };

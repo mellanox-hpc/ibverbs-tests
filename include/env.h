@@ -567,9 +567,13 @@ struct ibvt_ctx : public ibvt_obj {
 
 		dev_list = ibv_get_device_list(&num_devices);
 		for (int devn = 0; devn < num_devices; devn++) {
+			if (getenv("IBV_DEV") && strcmp(ibv_get_device_name(dev_list[devn]), getenv("IBV_DEV")))
+				continue;
 			if (other && other->dev == dev_list[devn])
 				continue;
-			SET(ctx, open_device(dev_list[devn]));
+			ctx = open_device(dev_list[devn]);
+			if (!ctx)
+				continue;
 			memset(&dev_attr, 0, sizeof(dev_attr));
 			DO(ibv_query_device_(ctx, &dev_attr, dev_attr_orig));
 			for (int port = 1; port <= dev_attr_orig->phys_port_cnt; port++) {

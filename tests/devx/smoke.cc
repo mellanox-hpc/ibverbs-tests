@@ -74,8 +74,6 @@ int reg_mr(struct ibv_context *ctx, int pd, void *buff, size_t size) {
 	if (!mem)
 		return 0;
 
-	printf("%s:%d \n", __func__, __LINE__);
-
 	DEVX_SET(create_mkey_in, in, opcode, MLX5_CMD_OP_CREATE_MKEY);
 	DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.access_mode_1_0, MLX5_MKC_ACCESS_MODE_MTT);
 	DEVX_SET(create_mkey_in, in, memory_key_mkey_entry.a, 1);
@@ -97,7 +95,6 @@ int reg_mr(struct ibv_context *ctx, int pd, void *buff, size_t size) {
 	mr = mlx5dv_devx_obj_create(ctx, in, sizeof(in), out, sizeof(out));
 	if (!mr)
 		return 0;
-	printf("%s:%d \n", __func__, __LINE__);
 	return DEVX_GET(create_mkey_out, out, mkey_index) << 8 | 0x42;
 }
 
@@ -163,7 +160,6 @@ int create_eq(struct ibv_context *ctx, void **buff_out, uint32_t uar_id)
 	return DEVX_GET(create_eq_out, out, eq_number);
 }
 
-#if 1
 int create_cq(struct ibv_context *ctx, void **buff_out, struct mlx5dv_devx_uar *uar, uint32_t **dbr_out, uint32_t eq);
 int create_cq(struct ibv_context *ctx, void **buff_out, struct mlx5dv_devx_uar *uar, uint32_t **dbr_out, uint32_t eq) {
 	uint32_t in[DEVX_ST_SZ_DW(create_cq_in)] = {0};
@@ -318,9 +314,9 @@ int create_qp(struct ibv_context *ctx, void **buff_out, struct mlx5dv_devx_uar *
 
 	buff = memalign(0x1000, 0x2000);
 	memset(buff, 0, 0x2000);
-	pas = mlx5dv_devx_umem_reg(ctx, buff, 0x2000, 7);
+	pas = mlx5dv_devx_umem_reg(ctx, buff, 0x2000, 0);
 	dbr = (uint8_t *)memalign(0x40, 0x948);
-	dbrm = mlx5dv_devx_umem_reg(ctx, dbr, 0x948, 7);
+	dbrm = mlx5dv_devx_umem_reg(ctx, dbr, 0x948, 0);
 
 	if (!pas || !dbrm)
 		return 0;
@@ -347,8 +343,10 @@ int create_qp(struct ibv_context *ctx, void **buff_out, struct mlx5dv_devx_uar *
 	if (!*q)
 		return 0;
 
-	*dbr_out = (uint32_t *)(dbr + 0x940);
-	*buff_out = buff;
+	if (dbr_out)
+		*dbr_out = (uint32_t *)(dbr + 0x940);
+	if (buff_out)
+		*buff_out = buff;
 
 	return DEVX_GET(create_qp_out, out, qpn);
 }
@@ -522,7 +520,6 @@ int arm_eq(uint32_t eq, uint32_t eqi, void *uar_ptr) {
 #endif
 	return 0;
 }
-#endif
 
 #include "env.h"
 
@@ -621,7 +618,6 @@ TEST(devx, gid) {
 	ASSERT_FALSE(devx_query_gid(ctx, 1, 0, gid));
 }
 
-#if 1
 TEST(devx, send) {
 	int num, devn = 0;
 	struct ibv_device **list = ibv_get_device_list(&num);
@@ -706,5 +702,371 @@ TEST(devx, send) {
 	ASSERT_FALSE(arm_eq(eq, eqi, uar->base_addr));
 	ASSERT_FALSE(arm_cq(cq, cqi, cq_dbr, uar->base_addr));
 }
+
+int test_rq(struct ibv_context *ctx, int cqn, int pd);
+int test_rq(struct ibv_context *ctx, int cqn, int pd) {
+	u8 in[DEVX_ST_SZ_BYTES(create_rq_in)] = {0};
+	u8 out[DEVX_ST_SZ_BYTES(create_rq_out)] = {0};
+	struct mlx5dv_devx_umem *pas, *dbr;
+	struct mlx5dv_devx_obj *q;
+	void *buff;
+	void *rqc, *wq;
+
+	unsigned char buff1[0x1000];
+	int mkey = reg_mr(ctx, pd, buff1, sizeof(buff1));
+
+	buff = mmap(NULL, 0x10000, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANON, -1, 0);
+	pas = mlx5dv_devx_umem_reg(ctx, buff, 0x10000, 7);
+
+	dbr = mlx5dv_devx_umem_reg(ctx, memalign(64, 8), 8, 7);
+	if (!dbr)
+		return 0;
+
+	DEVX_SET(create_rq_in, in, opcode, MLX5_CMD_OP_CREATE_RQ);
+
+	rqc = DEVX_ADDR_OF(create_rq_in, in, ctx);
+	DEVX_SET(rqc, rqc, vsd, 1);
+	//DEVX_SET(rqc, rqc, mem_rq_type, MLX5_RQC_MEM_RQ_TYPE_MEMORY_RQ_INLINE);
+	DEVX_SET(rqc, rqc, mem_rq_type, 0);
+	DEVX_SET(rqc, rqc, state, MLX5_RQC_STATE_RST);
+	DEVX_SET(rqc, rqc, flush_in_error_en, 1);
+	DEVX_SET(rqc, rqc, user_index, 1);
+	DEVX_SET(rqc, rqc, cqn, cqn);
+
+	wq = DEVX_ADDR_OF(rqc, rqc, wq);
+	DEVX_SET(wq, wq, wq_type, 1);
+	DEVX_SET(wq, wq, pd, pd);
+	DEVX_SET(wq, wq, log_wq_stride, 6);
+	DEVX_SET(wq, wq, log_wq_sz, 6);
+
+	DEVX_SET(rqc, rqc, dpp_mkey, mkey);
+
+	DEVX_SET(create_rq_in, in, ctx.wq.wq_umem_id, pas->umem_id);
+	DEVX_SET(create_rq_in, in, ctx.wq.dbr_umem_id, dbr->umem_id);
+
+	q = mlx5dv_devx_obj_create(ctx, in, sizeof(in), out, sizeof(out));
+	if (!q)
+		return 0;
+
+	return DEVX_GET(create_rq_out, out, rqn);
+}
+
+int test_td(struct ibv_context *ctx);
+int test_td(struct ibv_context *ctx) {
+	u8 in[DEVX_ST_SZ_BYTES(alloc_transport_domain_in)]   = {0};
+	u8 out[DEVX_ST_SZ_BYTES(alloc_transport_domain_out)] = {0};
+
+	DEVX_SET(alloc_transport_domain_in, in, opcode,
+		 MLX5_CMD_OP_ALLOC_TRANSPORT_DOMAIN);
+
+	if (!mlx5dv_devx_obj_create(ctx, in, sizeof(in), out, sizeof(out)))
+		return 0;
+
+	return DEVX_GET(alloc_transport_domain_out, out, transport_domain);
+}
+
+struct mlx5dv_devx_obj *test_tir(struct ibv_context *ctx, int rq, int td, int *tir_num);
+struct mlx5dv_devx_obj *test_tir(struct ibv_context *ctx, int rq, int td, int *tir_num) {
+	u8 in[DEVX_ST_SZ_BYTES(create_tir_in)]   = {0};
+	u8 out[DEVX_ST_SZ_BYTES(create_tir_out)] = {0};
+	struct mlx5dv_devx_obj *tir;
+	void *tirc;
+
+	DEVX_SET(create_tir_in, in, opcode, MLX5_CMD_OP_CREATE_TIR);
+	tirc = DEVX_ADDR_OF(create_tir_in, in, ctx);
+	DEVX_SET(tirc, tirc, disp_type, MLX5_TIRC_DISP_TYPE_DIRECT);
+	DEVX_SET(tirc, tirc, inline_rqn, rq);
+	DEVX_SET(tirc, tirc, transport_domain, td);
+
+	tir = mlx5dv_devx_obj_create(ctx, in, sizeof(in), out, sizeof(out));
+
+	*tir_num = DEVX_GET(create_tir_out, out, tirn);
+	return tir;
+}
+
+struct mlx5dv_devx_obj *test_tis(struct ibv_context *ctx, int qp, int td, int *tis_num);
+struct mlx5dv_devx_obj *test_tis(struct ibv_context *ctx, int qp, int td, int *tis_num) {
+	u8 in[DEVX_ST_SZ_BYTES(create_tis_in)]   = {0};
+	u8 out[DEVX_ST_SZ_BYTES(create_tis_out)] = {0};
+	struct mlx5dv_devx_obj *tis;
+	void *tisc;
+
+	DEVX_SET(create_tis_in, in, opcode, MLX5_CMD_OP_CREATE_TIS);
+	tisc = DEVX_ADDR_OF(create_tis_in, in, ctx);
+	//DEVX_SET(tisc, tisc, disp_type, MLX5_TISC_DISP_TYPE_DIRECT);
+	//DEVX_SET(tisc, tisc, inline_rqn, rq);
+	DEVX_SET(tisc, tisc, transport_domain, td);
+	DEVX_SET(tisc, tisc, underlay_qpn, qp);
+
+	tis = mlx5dv_devx_obj_create(ctx, in, sizeof(in), out, sizeof(out));
+
+	*tis_num = DEVX_GET(create_tis_out, out, tisn);
+	return tis;
+}
+
+#if 0
+int test_rule(struct ibv_context *ctx, struct mlx5dv_devx_obj *tir, struct mlx5dv_devx_obj **rule);
+int test_rule(struct ibv_context *ctx, struct mlx5dv_devx_obj *tir, struct mlx5dv_devx_obj **rule) {
+	u8 in[DEVX_ST_SZ_BYTES(fs_rule_add_in)] = {0};
+	__be32 src_ip = 0x01020304;
+	__be32 dst_ip = 0x05060708;
+	void *headers_c, *headers_v;
+
+	DEVX_SET(fs_rule_add_in, in, prio, 4);
+
+	headers_c = DEVX_ADDR_OF(fs_rule_add_in, in,
+			flow_spec.match_criteria.outer_headers);
+	headers_v = DEVX_ADDR_OF(fs_rule_add_in, in,
+			flow_spec.match_value.outer_headers);
+
+	DEVX_SET(fte_match_set_lyr_2_4, headers_c, ip_version, 0xf);
+	DEVX_SET(fte_match_set_lyr_2_4, headers_v, ip_version, 4);
+
+	DEVX_SET_TO_ONES(fte_match_set_lyr_2_4, headers_c,
+			 src_ipv4_src_ipv6.ipv4_layout.ipv4);
+	memcpy(DEVX_ADDR_OF(fte_match_set_lyr_2_4, headers_v,
+			    src_ipv4_src_ipv6.ipv4_layout.ipv4),
+			&src_ip, sizeof(src_ip));
+
+	DEVX_SET_TO_ONES(fte_match_set_lyr_2_4, headers_c,
+			 dst_ipv4_dst_ipv6.ipv4_layout.ipv4);
+	memcpy(DEVX_ADDR_OF(fte_match_set_lyr_2_4, headers_v,
+			    dst_ipv4_dst_ipv6.ipv4_layout.ipv4),
+			&dst_ip, sizeof(dst_ip));
+
+	DEVX_SET(fs_rule_add_in, in, flow_spec.match_criteria_enable, 1 << MLX5_CREATE_FLOW_GROUP_IN_MATCH_CRITERIA_ENABLE_OUTER_HEADERS);
+
+	*rule = devx_fs_rule_add(ctx, in, tir, 0);
+	return !!*rule;
+}
 #endif
 
+enum fs_flow_table_type {
+	FS_FT_NIC_RX	      = 0x0,
+	FS_FT_NIC_TX	      = 0x1,
+	FS_FT_ESW_EGRESS_ACL  = 0x2,
+	FS_FT_ESW_INGRESS_ACL = 0x3,
+	FS_FT_FDB	      = 0X4,
+	FS_FT_SNIFFER_RX	= 0X5,
+	FS_FT_SNIFFER_TX	= 0X6,
+	FS_FT_MAX_TYPE = FS_FT_SNIFFER_TX,
+};
+
+struct mlx5dv_devx_obj *create_ft(struct ibv_context *ctx, int *ft_num);
+struct mlx5dv_devx_obj *create_ft(struct ibv_context *ctx, int *ft_num)
+{
+	uint8_t in[DEVX_ST_SZ_BYTES(create_flow_table_in)] = {0};
+	uint8_t out[DEVX_ST_SZ_BYTES(create_flow_table_out)] = {0};
+	struct mlx5dv_devx_obj *ft;
+	void *ftc;
+
+	DEVX_SET(create_flow_table_in, in, opcode, MLX5_CMD_OP_CREATE_FLOW_TABLE);
+	DEVX_SET(create_flow_table_in, in, table_type, FS_FT_NIC_RX);
+
+	ftc = DEVX_ADDR_OF(create_flow_table_in, in, flow_table_context);
+	DEVX_SET(flow_table_context, ftc, table_miss_action, 0); // default table
+	DEVX_SET(flow_table_context, ftc, level, 64); // table level
+	DEVX_SET(flow_table_context, ftc, log_size, 0);
+
+	ft = mlx5dv_devx_obj_create(ctx, in, sizeof(in), out, sizeof(out));
+	*ft_num = DEVX_GET(create_flow_table_out, out, table_id);
+
+	return ft;
+}
+
+int create_fg(struct ibv_context *ctx, int ft);
+int create_fg(struct ibv_context *ctx, int ft)
+{
+	uint8_t in[DEVX_ST_SZ_BYTES(create_flow_group_in)] = {0};
+	uint8_t out[DEVX_ST_SZ_BYTES(create_flow_group_out)] = {0};
+
+	DEVX_SET(create_flow_group_in, in, opcode, MLX5_CMD_OP_CREATE_FLOW_GROUP);
+	DEVX_SET(create_flow_group_in, in, table_type, FS_FT_NIC_RX);
+	DEVX_SET(create_flow_group_in, in, table_id, ft);
+	DEVX_SET(create_flow_group_in, in, start_flow_index, 0);
+	DEVX_SET(create_flow_group_in, in, end_flow_index, 0);
+	DEVX_SET(create_flow_group_in, in, match_criteria_enable, MLX5_CREATE_FLOW_GROUP_IN_MATCH_CRITERIA_ENABLE_OUTER_HEADERS);
+
+	if (!mlx5dv_devx_obj_create(ctx, in, sizeof(in), out, sizeof(out)))
+		return 0;
+
+	return DEVX_GET(create_flow_group_out, out, group_id);
+}
+
+int set_fte(struct ibv_context *ctx, int ft, int fg, int tir, struct mlx5dv_devx_obj **rule);
+int set_fte(struct ibv_context *ctx, int ft, int fg, int tir, struct mlx5dv_devx_obj **rule)
+{
+	uint8_t in[DEVX_ST_SZ_BYTES(set_fte_in) + DEVX_UN_SZ_BYTES(dest_format_struct_flow_counter_list_auto)] = {0};
+	uint8_t out[DEVX_ST_SZ_BYTES(set_fte_out)] = {0};
+	void *in_flow_context, *in_dests;
+	int op = !!*rule;
+
+	DEVX_SET(set_fte_in, in, opcode, MLX5_CMD_OP_SET_FLOW_TABLE_ENTRY);
+	DEVX_SET(set_fte_in, in, uid, 0); // FIXME !!!!!!
+	DEVX_SET(set_fte_in, in, op_mod, op);
+	DEVX_SET(set_fte_in, in, modify_enable_mask, op ? 4 : 0);
+	DEVX_SET(set_fte_in, in, table_type, FS_FT_NIC_RX);
+	DEVX_SET(set_fte_in, in, table_id,   ft);
+	DEVX_SET(set_fte_in, in, flow_index, 0);
+
+	DEVX_SET(set_fte_in, in, vport_number, 0);
+	DEVX_SET(set_fte_in, in, other_vport, 0);
+
+	in_flow_context = DEVX_ADDR_OF(set_fte_in, in, flow_context);
+	DEVX_SET(flow_context, in_flow_context, group_id, fg);
+	DEVX_SET(flow_context, in_flow_context, flow_tag, 1);
+	DEVX_SET(flow_context, in_flow_context, action, MLX5_FLOW_CONTEXT_ACTION_FWD_DEST);
+	DEVX_SET(flow_context, in_flow_context, destination_list_size, 1);
+
+	in_dests = DEVX_ADDR_OF(flow_context, in_flow_context, destination[0].dest_format_struct);
+	DEVX_SET(dest_format_struct, in_dests, destination_type, MLX5_FLOW_DESTINATION_TYPE_TIR);
+	DEVX_SET(dest_format_struct, in_dests, destination_id, tir);
+
+	if (*rule) {
+		return !mlx5dv_devx_obj_modify(*rule, in, sizeof(in), out, sizeof(out));
+	} else {
+		*rule = mlx5dv_devx_obj_create(ctx, in, sizeof(in), out, sizeof(out));
+		return !!*rule;
+	}
+}
+
+#if 0
+int test_rule_priv(struct ibv_context *ctx, struct mlx5dv_devx_obj *ft);
+int test_rule_priv(struct ibv_context *ctx, struct mlx5dv_devx_obj *ft) {
+	u8 in[DEVX_ST_SZ_BYTES(fs_rule_add_in)] = {0};
+	struct mlx5dv_devx_obj *rule;
+	__be32 src_ip = 0x01020304;
+	__be32 dst_ip = 0x05060708;
+	void *headers_c, *headers_v;
+
+	DEVX_SET(fs_rule_add_in, in, prio, 5);
+
+	headers_c = DEVX_ADDR_OF(fs_rule_add_in, in,
+			flow_spec.match_criteria.outer_headers);
+	headers_v = DEVX_ADDR_OF(fs_rule_add_in, in,
+			flow_spec.match_value.outer_headers);
+
+	DEVX_SET(fte_match_set_lyr_2_4, headers_c, ip_version, 0xf);
+	DEVX_SET(fte_match_set_lyr_2_4, headers_v, ip_version, 4);
+
+	DEVX_SET_TO_ONES(fte_match_set_lyr_2_4, headers_c,
+			 src_ipv4_src_ipv6.ipv4_layout.ipv4);
+	memcpy(DEVX_ADDR_OF(fte_match_set_lyr_2_4, headers_v,
+			    src_ipv4_src_ipv6.ipv4_layout.ipv4),
+			&src_ip, sizeof(src_ip));
+
+	DEVX_SET_TO_ONES(fte_match_set_lyr_2_4, headers_c,
+			 dst_ipv4_dst_ipv6.ipv4_layout.ipv4);
+	memcpy(DEVX_ADDR_OF(fte_match_set_lyr_2_4, headers_v,
+			    dst_ipv4_dst_ipv6.ipv4_layout.ipv4),
+			&dst_ip, sizeof(dst_ip));
+
+	DEVX_SET(fs_rule_add_in, in, flow_spec.match_criteria_enable, 1 << MLX5_CREATE_FLOW_GROUP_IN_MATCH_CRITERIA_ENABLE_OUTER_HEADERS);
+
+	rule = devx_fs_rule_add(ctx, in, ft, 0);
+	if (!rule)
+		return 0;
+
+	return 1;
+}
+#endif
+
+int create_qp_ulp(struct ibv_context *ctx, int pd, struct mlx5dv_devx_obj **q);
+int create_qp_ulp(struct ibv_context *ctx, int pd, struct mlx5dv_devx_obj **q) {
+	u8 in[DEVX_ST_SZ_BYTES(create_qp_in)] = {0};
+	u8 out[DEVX_ST_SZ_BYTES(create_qp_out)] = {0};
+	struct mlx5dv_devx_umem *pas, *dbrm;
+	void *buff, *qpc;
+	uint8_t *dbr;
+
+	buff = memalign(0x1000, 0x2000);
+	memset(buff, 0, 0x2000);
+	pas = mlx5dv_devx_umem_reg(ctx, buff, 0x2000, 7);
+	dbr = (uint8_t *)memalign(0x40, 0x948);
+	dbrm = mlx5dv_devx_umem_reg(ctx, dbr, 0x948, 7);
+
+	if (!pas || !dbrm)
+		return 0;
+
+	DEVX_SET(create_qp_in, in, opcode, MLX5_CMD_OP_CREATE_QP);
+
+	qpc = DEVX_ADDR_OF(create_qp_in, in, qpc);
+	DEVX_SET(qpc, qpc, st, MLX5_QP_ST_UD);
+	DEVX_SET(qpc, qpc, pm_state, MLX5_QP_PM_MIGRATED);
+	DEVX_SET(qpc, qpc, pd, pd);
+	DEVX_SET(create_qp_in, in, wq_umem_id, pas->umem_id);
+	DEVX_SET(qpc, qpc, dbr_umem_id, dbrm->umem_id);
+	DEVX_SET(qpc, qpc, ulp_stateless_offload_mode, 2);
+
+	*q = mlx5dv_devx_obj_create(ctx, in, sizeof(in), out, sizeof(out));
+	if (!*q)
+		return 0;
+
+	return DEVX_GET(create_qp_out, out, qpn);
+}
+
+TEST(devx, roce) {
+	int num, devn = 0;
+	struct ibv_device **list = ibv_get_device_list(&num);
+	struct ibv_context *ctx;
+	struct mlx5dv_context_attr attr = {};
+	int pd;
+	int cq, rq, td, tir_num;
+	int ft_num, fg;
+
+	if (getenv("DEVN"))
+		devn = atoi(getenv("DEVN"));
+
+	attr.flags = MLX5DV_CONTEXT_FLAGS_DEVX;
+
+	ASSERT_GT(num, devn);
+	ctx = mlx5dv_open_device(list[devn], &attr);
+	ASSERT_TRUE(ctx);
+	ibv_free_device_list(list);
+
+	EXPECT_LE(0, query_device(ctx));
+
+	pd = alloc_pd(ctx);
+	ASSERT_TRUE(pd);
+
+	cq = create_cq(ctx, NULL, 0, NULL, 0);
+	ASSERT_TRUE(cq);
+	rq = test_rq(ctx, cq, pd);
+	ASSERT_TRUE(rq);
+	td = test_td(ctx);
+	ASSERT_TRUE(td);
+
+	struct mlx5dv_devx_obj *q;
+	int qp = create_qp_ulp(ctx, pd, &q);
+	ASSERT_TRUE(qp);
+
+	int tis_num;
+	struct mlx5dv_devx_obj *tis = test_tis(ctx, qp, td, &tis_num);
+	ASSERT_TRUE(tis);
+	struct mlx5dv_devx_obj *tir = test_tir(ctx, rq, td, &tir_num);
+	ASSERT_TRUE(tir);
+
+#if 0
+	struct mlx5dv_devx_obj *rule1 = NULL;
+	ASSERT_TRUE(test_rule(ctx, tir, &rule1));
+	ASSERT_FALSE(devx_fs_rule_del(rule1));
+#endif
+
+	struct mlx5dv_devx_obj *ft = create_ft(ctx, &ft_num);
+	ASSERT_TRUE(ft);
+	fg = create_fg(ctx,ft_num);
+	struct mlx5dv_devx_obj *rule = NULL;
+	ASSERT_TRUE(set_fte(ctx,ft_num,fg,tir_num,&rule));
+	ASSERT_TRUE(set_fte(ctx,ft_num,fg,tir_num,&rule));
+
+#if 0
+	ASSERT_TRUE(test_rule_priv(ctx,ft));
+	ASSERT_TRUE(test_rule_priv(ctx,ft));
+#endif
+
+	int tir2;
+	ASSERT_TRUE(test_tir(ctx, rq, td, &tir2));
+	ASSERT_TRUE(set_fte(ctx,ft_num,fg,tir2,&rule));
+
+	ibv_close_device(ctx);
+}

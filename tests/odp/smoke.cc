@@ -840,7 +840,7 @@ struct devx_indirect_mr : public ibvt_abstract_mr {
 		INIT(umr());
 	}
 
-	virtual void set_mkc(char *mkc) {
+	virtual void set_mkc(unsigned char *mkc) {
 		struct mlx5dv_obj dv = {};
 		struct mlx5dv_pd dvpd = {};
 
@@ -919,7 +919,7 @@ struct devx_indirect_mr : public ibvt_abstract_mr {
 struct devx_klm_umr : public devx_indirect_mr {
 	devx_klm_umr(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) : devx_indirect_mr(m, q, c) {}
 
-	virtual void set_mkc(char *mkc) {
+	virtual void set_mkc(unsigned char *mkc) {
 		devx_indirect_mr::set_mkc(mkc);
 
 		DEVX_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_KLMS);
@@ -933,7 +933,7 @@ struct devx_klm_umr : public devx_indirect_mr {
 struct devx_klm : public devx_indirect_mr {
 	devx_klm(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) : devx_indirect_mr(m, q, c) {}
 
-	virtual void set_mkc(char *mkc) {
+	virtual void set_mkc(unsigned char *mkc) {
 		devx_indirect_mr::set_mkc(mkc);
 
 		DEVX_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_KLMS);
@@ -947,7 +947,7 @@ struct devx_klm : public devx_indirect_mr {
 struct devx_ksm_umr : public devx_indirect_mr {
 	devx_ksm_umr(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) : devx_indirect_mr(m, q, c) {}
 
-	virtual void set_mkc(char *mkc) {
+	virtual void set_mkc(unsigned char *mkc) {
 		devx_indirect_mr::set_mkc(mkc);
 
 		DEVX_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_KSM);
@@ -962,7 +962,7 @@ struct devx_ksm_umr : public devx_indirect_mr {
 struct devx_ksm : public devx_indirect_mr {
 	devx_ksm(ibvt_mr &m, ibvt_qp &q, ibvt_cq &c) : devx_indirect_mr(m, q, c) {}
 
-	virtual void set_mkc(char *mkc) {
+	virtual void set_mkc(unsigned char *mkc) {
 		devx_indirect_mr::set_mkc(mkc);
 
 		DEVX_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_KSM);

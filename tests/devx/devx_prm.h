@@ -24,6 +24,8 @@ struct mlx5_ifc_pas_umem_bits {
 	u8	   dbr_umem_off[0x40];
 };
 
+#if !HAVE_DECL___DEVX_NULLP
+
 #define __devx_nullp(typ) ((struct mlx5_ifc_##typ##_bits *)0)
 #define __devx_bit_sz(typ, fld) sizeof(__devx_nullp(typ)->fld)
 #define __devx_bit_off(typ, fld) (offsetof(struct mlx5_ifc_##typ##_bits, fld))
@@ -41,7 +43,7 @@ struct mlx5_ifc_pas_umem_bits {
 #define DEVX_UN_SZ_BYTES(typ) (sizeof(union mlx5_ifc_##typ##_bits) / 8)
 #define DEVX_UN_SZ_DW(typ) (sizeof(union mlx5_ifc_##typ##_bits) / 32)
 #define DEVX_BYTE_OFF(typ, fld) (__devx_bit_off(typ, fld) / 8)
-#define DEVX_ADDR_OF(typ, p, fld) ((char *)(p) + DEVX_BYTE_OFF(typ, fld))
+#define DEVX_ADDR_OF(typ, p, fld) ((unsigned char *)(p) + DEVX_BYTE_OFF(typ, fld))
 
 #define BUILD_BUG_ON(a) /*TODO*/
 /* insert a value to a struct */
@@ -71,6 +73,8 @@ struct mlx5_ifc_pas_umem_bits {
 
 #define DEVX_GET64(typ, p, fld) \
 	be64toh(*((__be64 *)(p) + __devx_64_off(typ, fld)))
+
+#endif
 
 #define DEVX_SET_TO_ONES(typ, p, fld) do { \
 	BUILD_BUG_ON(__devx_st_sz_bits(typ) % 32);	       \
