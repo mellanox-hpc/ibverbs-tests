@@ -209,8 +209,6 @@
 #define _wr_opcode			opcode
 #define _wr_send_flags			send_flags
 #define _wc_opcode			opcode
-//#define IBV_ODP_SUPPORT_IMPLICIT	2   pending kernel fix
-#define IBV_ODP_SUPPORT_IMPLICIT	0
 
 #endif
 

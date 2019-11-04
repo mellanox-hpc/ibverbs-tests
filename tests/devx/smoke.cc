@@ -185,7 +185,6 @@ int create_cq(struct ibv_context *ctx, void **buff_out, struct mlx5dv_devx_uar *
 		uar = mlx5dv_devx_alloc_uar(ctx, 0);
 	pas = mlx5dv_devx_umem_reg(ctx, buff, 0x1000, 7);
 	dbr = (uint8_t *)memalign(0x40, 0x948);
-	//dbr = memalign(0x1000, 8);
 	dbrm = mlx5dv_devx_umem_reg(ctx, dbr, 0x948, 7);
 
 	if (ret || !uar || !pas || !dbr)

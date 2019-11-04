@@ -631,6 +631,9 @@ typedef testing::Types<
 #if HAVE_DECL_IBV_ACCESS_HUGETLB
 	types<odp_hugetlb, odp_rc, odp_send<ibvt_ctx> >,
 #endif
+#if HAVE_PREFETCH
+	types<odp_prefetch, odp_rc, odp_send<ibvt_ctx> >,
+#endif
 	types<odp_off, odp_rc, odp_send<ibvt_ctx> >
 > odp_env_list_long;
 

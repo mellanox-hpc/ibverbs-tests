@@ -7,6 +7,10 @@
 #ifndef __DEVX_PRM_H__
 #define __DEVX_PRM_H__
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <endian.h>
 
 #define u8 uint8_t
