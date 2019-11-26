@@ -1083,9 +1083,9 @@ TYPED_TEST(odp_devx, t0_crossbound) {
 
 TYPED_TEST(odp_devx, t1_upper) {
 	ODP_CHK_SUT(__PAGE);
-	EXEC(test(UP - __PAGE * 1,
-		  UP - __PAGE * 2,
-		  0x2000));
+	EXEC(test(UP - __PAGE * 2,
+		  UP - __PAGE * 3,
+		  __PAGE));
 }
 
 TYPED_TEST(odp_devx, t2_sequence) {
