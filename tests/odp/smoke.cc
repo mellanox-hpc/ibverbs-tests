@@ -149,6 +149,8 @@ struct odp_side_qp : public odp_side {
 	virtual ibvt_qp &get_qp() { return qp; }
 };
 
+#define __PAGE this->mem().Page()
+
 struct odp_mem : public ibvt_obj {
 	odp_side &ssrc;
 	odp_side &sdst;
@@ -157,6 +159,8 @@ struct odp_mem : public ibvt_obj {
 	ibvt_abstract_mr *pdst;
 
 	odp_mem(odp_side &s, odp_side &d) : ibvt_obj(s.env), ssrc(s), sdst(d), psrc(NULL), pdst(NULL) {}
+
+	virtual size_t Page() { return PAGE; }
 
 	virtual void init() {}
 	virtual void reg(unsigned long src_addr, unsigned long dst_addr, size_t len) = 0;
@@ -398,6 +402,8 @@ struct odp_prefetch : public odp_mem {
 struct odp_hugetlb : public odp_mem {
 	odp_hugetlb(odp_side &s, odp_side &d) : odp_mem(s, d) {}
 
+	virtual size_t Page() { return PAGE * 512; }
+
 	virtual void reg(unsigned long src_addr, unsigned long dst_addr, size_t len) {
 		SET(psrc, new ibvt_mr_hp(ssrc.env, ssrc.pd, len, src_addr, ssrc.access_flags | IBV_ACCESS_ON_DEMAND));
 		SET(pdst, new ibvt_mr_hp(sdst.env, sdst.pd, len, dst_addr, sdst.access_flags | IBV_ACCESS_ON_DEMAND));
@@ -589,32 +595,32 @@ typedef testing::Types<
 TYPED_TEST_CASE(odp, odp_env_list);
 
 TYPED_TEST(odp, t0_crossbound) {
-	ODP_CHK_SUT(PAGE);
-	EXEC(test((1ULL<<(32+1))-PAGE,
-		  (1ULL<<(32+2))-PAGE,
-		  PAGE * 2));
+	ODP_CHK_SUT(__PAGE * 2);
+	EXEC(test((1ULL<<(32+1))-__PAGE,
+		  (1ULL<<(32+2))-__PAGE,
+		  __PAGE * 2));
 }
 
 TYPED_TEST(odp, t1_upper) {
-	ODP_CHK_SUT(PAGE);
-	EXEC(test(UP - 0x10000 * 1,
-		  UP - 0x10000 * 2,
-		  0x2000));
+	ODP_CHK_SUT(__PAGE);
+	EXEC(test(UP - __PAGE * 2,
+		  UP - __PAGE * 3,
+		  __PAGE));
 }
 
 TYPED_TEST(odp, t2_sequence) {
-	ODP_CHK_SUT(PAGE);
+	ODP_CHK_SUT(__PAGE);
 	unsigned long p = 0x2000000000;
 	for (int i = 0; i < 20; i++) {
-		EXEC(test(p, p+PAGE, PAGE));
-		p += PAGE * 2;
+		EXEC(test(p, p+__PAGE, __PAGE));
+		p += __PAGE * 2;
 	}
 }
 
 TYPED_TEST(odp, t3_1b) {
-	ODP_CHK_SUT(PAGE);
+	ODP_CHK_SUT(__PAGE);
 	unsigned long p = 0x2000000000;
-	EXEC(test(p, p+PAGE, PAGE, PAGE/0x10));
+	EXEC(test(p, p+__PAGE, __PAGE, __PAGE/0x10));
 }
 
 TYPED_TEST(odp, t4_6M) {
@@ -627,6 +633,8 @@ struct odp_long : public odp<T> { odp_long(): odp<T>() {} };
 
 typedef testing::Types<
 	types<odp_explicit, odp_rc, odp_send<ibvt_ctx> >,
+	types<odp_explicit, odp_rc, odp_rdma_read<ibvt_ctx> >,
+	types<odp_explicit, odp_rc, odp_rdma_write<ibvt_ctx> >,
 	types<odp_implicit, odp_rc, odp_send<ibvt_ctx> >,
 #if HAVE_DECL_IBV_ACCESS_HUGETLB
 	types<odp_hugetlb, odp_rc, odp_send<ibvt_ctx> >,
@@ -851,7 +859,7 @@ struct devx_indirect_mr : public ibvt_abstract_mr {
 		dv.pd.out = &dvpd;
 		mlx5dv_init_obj(&dv, MLX5DV_OBJ_PD);
 
-		DEVX_SET(mkc, mkc, a, 1);
+		//DEVX_SET(mkc, mkc, a, 1);
 		DEVX_SET(mkc, mkc, rw, 1);
 		DEVX_SET(mkc, mkc, rr, 1);
 		DEVX_SET(mkc, mkc, lw, 1);
@@ -1067,32 +1075,32 @@ typedef testing::Types<
 TYPED_TEST_CASE(odp_devx, odp_devx_list_spec);
 
 TYPED_TEST(odp_devx, t0_crossbound) {
-	ODP_CHK_SUT(PAGE);
-	EXEC(test((1ULL<<(32+1))-PAGE,
-		  (1ULL<<(32+2))-PAGE,
-		  PAGE * 2));
+	ODP_CHK_SUT(__PAGE);
+	EXEC(test((1ULL<<(32+1))-__PAGE,
+		  (1ULL<<(32+2))-__PAGE,
+		  __PAGE * 2));
 }
 
 TYPED_TEST(odp_devx, t1_upper) {
-	ODP_CHK_SUT(PAGE);
-	EXEC(test(UP - 0x10000 * 1,
-		  UP - 0x10000 * 2,
+	ODP_CHK_SUT(__PAGE);
+	EXEC(test(UP - __PAGE * 1,
+		  UP - __PAGE * 2,
 		  0x2000));
 }
 
 TYPED_TEST(odp_devx, t2_sequence) {
-	ODP_CHK_SUT(PAGE);
+	ODP_CHK_SUT(__PAGE);
 	unsigned long p = 0x2000000000;
 	for (int i = 0; i < 20; i++) {
-		EXEC(test(p, p+PAGE, PAGE));
-		p += PAGE * 2;
+		EXEC(test(p, p+__PAGE, __PAGE));
+		p += __PAGE * 2;
 	}
 }
 
 TYPED_TEST(odp_devx, t3_1b) {
-	ODP_CHK_SUT(PAGE);
+	ODP_CHK_SUT(__PAGE);
 	unsigned long p = 0x2000000000;
-	EXEC(test(p, p+PAGE, PAGE, PAGE/0x10));
+	EXEC(test(p, p+__PAGE, __PAGE, __PAGE/0x10));
 }
 
 TYPED_TEST(odp_devx, t4_6M) {
