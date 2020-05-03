@@ -160,8 +160,12 @@ int create_eq(struct ibv_context *ctx, void **buff_out, uint32_t uar_id)
 	return DEVX_GET(create_eq_out, out, eq_number);
 }
 
-int create_cq(struct ibv_context *ctx, void **buff_out, struct mlx5dv_devx_uar *uar, uint32_t **dbr_out, uint32_t eq);
-int create_cq(struct ibv_context *ctx, void **buff_out, struct mlx5dv_devx_uar *uar, uint32_t **dbr_out, uint32_t eq) {
+int create_cq(struct ibv_context *ctx, void **buff_out,
+	      struct mlx5dv_devx_uar *uar, uint32_t **dbr_out, uint32_t eq,
+	      struct mlx5dv_devx_obj **cq_out);
+int create_cq(struct ibv_context *ctx, void **buff_out,
+	      struct mlx5dv_devx_uar *uar, uint32_t **dbr_out, uint32_t eq,
+	      struct mlx5dv_devx_obj **cq_out) {
 	uint32_t in[DEVX_ST_SZ_DW(create_cq_in)] = {0};
 	uint32_t out[DEVX_ST_SZ_DW(create_cq_out)] = {0};
 	struct mlx5_cqe64 *cqe;
@@ -207,6 +211,8 @@ int create_cq(struct ibv_context *ctx, void **buff_out, struct mlx5dv_devx_uar *
 		*dbr_out = (uint32_t *)(dbr + 0x940);
 	if (buff_out)
 		*buff_out = buff;
+	if (cq_out)
+		*cq_out = cq;
 
 	return DEVX_GET(create_cq_out, out, cqn);
 }
@@ -450,7 +456,6 @@ enum {
 };
 
 int arm_cq(uint32_t cq, uint32_t cqi, uint32_t *cq_dbr, void *uar_ptr) {
-#if HAS_EQ_SUPPORT
 	uint64_t doorbell;
 	uint32_t sn;
 	uint32_t ci;
@@ -469,7 +474,6 @@ int arm_cq(uint32_t cq, uint32_t cqi, uint32_t *cq_dbr, void *uar_ptr) {
 
 	*(uint64_t *)((uint8_t *)uar_ptr + 0x20) = htobe64(doorbell);
 	asm volatile("" ::: "memory");
-#endif
 	return 0;
 }
 
@@ -652,7 +656,7 @@ TEST(devx, send) {
 
 	void *cq_buff;
 	uint32_t *cq_dbr;
-	int cq = create_cq(ctx, &cq_buff, uar, &cq_dbr, eq);
+	int cq = create_cq(ctx, &cq_buff, uar, &cq_dbr, eq, NULL);
 	ASSERT_TRUE(cq);
 	int mkey = reg_mr(ctx, pd, buff, sizeof(buff));
 	ASSERT_TRUE(mkey);
@@ -700,6 +704,91 @@ TEST(devx, send) {
 	ASSERT_FALSE(poll_cq((uint8_t *)cq_buff, &cqi, cq_dbr));
 	ASSERT_FALSE(arm_eq(eq, eqi, uar->base_addr));
 	ASSERT_FALSE(arm_cq(cq, cqi, cq_dbr, uar->base_addr));
+}
+
+TEST(devx, events) {
+	int num, devn = 0;
+	struct ibv_device **list = ibv_get_device_list(&num);
+	struct ibv_context *ctx;
+	struct mlx5dv_context_attr attr = {};
+	int lid, type;
+	unsigned char buff[0x1000];
+	for(int i = 0; i < 0x60; i++)
+		buff[i] = i + 0x20;
+
+	if (getenv("DEVN"))
+		devn = atoi(getenv("DEVN"));
+
+	attr.flags = MLX5DV_CONTEXT_FLAGS_DEVX;
+
+	ASSERT_GT(num, devn);
+	ctx = mlx5dv_open_device(list[devn], &attr);
+	ASSERT_TRUE(ctx);
+	ibv_free_device_list(list);
+
+	struct mlx5dv_devx_uar *uar;
+	uar = mlx5dv_devx_alloc_uar(ctx, 0);
+	ASSERT_TRUE(uar);
+
+	int pd = alloc_pd(ctx);
+	ASSERT_TRUE(pd);
+
+	uint32_t eq;
+	ASSERT_FALSE(mlx5dv_devx_query_eqn(ctx, 0, &eq));
+
+	void *cq_buff;
+	uint32_t *cq_dbr;
+	struct mlx5dv_devx_obj *cqo;
+	int cq = create_cq(ctx, &cq_buff, uar, &cq_dbr, eq, &cqo);
+	ASSERT_TRUE(cq);
+
+	struct mlx5dv_devx_event_channel *ch;
+	ch = mlx5dv_devx_create_event_channel(ctx, (mlx5dv_devx_create_event_channel_flags)0);
+	ASSERT_TRUE(ch);
+
+	uint16_t cq_event[] = { 0x0 };
+	ASSERT_FALSE(mlx5dv_devx_subscribe_devx_event(ch, cqo, sizeof(cq_event), cq_event, 0x1234000000000001ULL));
+
+	int mkey = reg_mr(ctx, pd, buff, sizeof(buff));
+	ASSERT_TRUE(mkey);
+
+	type = query_device(ctx);
+	EXPECT_LE(0, query_device(ctx));
+
+	uint8_t gid[16];
+	ASSERT_FALSE(devx_query_gid(ctx, 1, 0, gid));
+
+	if (!type) {
+		lid = query_lid(ctx);
+		ASSERT_LE(0, lid);
+	} else {
+		lid = 0;
+	}
+
+	void *qp_buff;
+	uint32_t *qp_dbr;
+	struct mlx5dv_devx_obj *q;
+	int qp = create_qp(ctx, &qp_buff, uar, &qp_dbr, cq, pd, &q);
+	ASSERT_TRUE(qp);
+	ASSERT_FALSE(to_init(q, qp));
+	ASSERT_FALSE(to_rtr(q, qp, type, lid, gid));
+	ASSERT_FALSE(to_rts(q, qp));
+
+	uint8_t *rq = (uint8_t *)qp_buff;
+	uint8_t *sq = (uint8_t *)qp_buff + MLX5_SEND_WQE_BB * RQ_SIZE;
+	uint32_t rqi = 0, sqi = 0, cqi = 0;
+
+	ASSERT_FALSE(arm_cq(cq, cqi, cq_dbr, uar->base_addr));
+	ASSERT_FALSE(recv(rq, &rqi, qp_dbr, mkey, buff, 0x30));
+	ASSERT_FALSE(xmit(sq, &sqi, qp_dbr, mkey, buff + 0x30, 0x30, uar->base_addr, qp));
+
+	struct {
+		struct mlx5dv_devx_async_event_hdr hdr;
+		uint8_t data[64];
+	} event;
+
+	ASSERT_TRUE(mlx5dv_devx_get_event(ch, &event.hdr, sizeof(event)));
+	printf("event %llx\n", event.hdr.cookie);
 }
 
 int test_rq(struct ibv_context *ctx, int cqn, int pd);
@@ -1028,7 +1117,7 @@ TEST(devx, roce) {
 	pd = alloc_pd(ctx);
 	ASSERT_TRUE(pd);
 
-	cq = create_cq(ctx, NULL, 0, NULL, 0);
+	cq = create_cq(ctx, NULL, 0, NULL, 0, NULL);
 	ASSERT_TRUE(cq);
 	rq = test_rq(ctx, cq, pd);
 	ASSERT_TRUE(rq);
