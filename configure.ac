@@ -201,6 +201,7 @@ AC_CHECK_DECLS([IBV_EXP_DEVICE_ATTR_RESERVED_2], [], [], [[
 AC_CHECK_HEADERS([infiniband/mlx5dv.h])
 AC_CHECK_DECLS([
 	mlx5dv_init_obj,
+	mlx5dv_devx_subscribe_devx_event,
 	MLX5DV_DCTYPE_DCT,
 	MLX5DV_CONTEXT_FLAGS_DEVX], [], [], [[
 #include <infiniband/mlx5dv.h>
