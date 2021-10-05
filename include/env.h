@@ -1587,6 +1587,16 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 		DO(ibv_modify_qp(qp, &attr, flags));
 	}
 
+	void setup_mac(uint8_t *mac, uint8_t *gid) {
+		mac[0] = gid[8] ^ 0x02;
+		mac[1] = gid[9];
+		mac[2] = gid[10];
+		mac[3] = gid[13];
+		mac[4] = gid[14];
+		mac[5] = gid[15];
+
+	}
+
 	virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode,
 			       int flags = IBV_SEND_SIGNALED) {
 		uint8_t mac[6] = {}, *gid = dremote->pd.ctx.gid.raw;
@@ -1599,12 +1609,7 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 		else
 			FAIL();
 
-		mac[0] = gid[8] ^ 0x02;
-		mac[1] = gid[9];
-		mac[2] = gid[10];
-		mac[3] = gid[13];
-		mac[4] = gid[14];
-		mac[5] = gid[15];
+		setup_mac(mac, gid);
 
 		struct mlx5_wqe_ctrl_seg *ctrl = (struct mlx5_wqe_ctrl_seg *)get_wqe(0);
 		mlx5dv_set_ctrl_seg(ctrl, sqi, op, 0, qp->qp_num, fm_ce_se, ds, 0, 0);
@@ -1631,6 +1636,8 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 			op = MLX5_OPCODE_RDMA_READ;
 		else
 			FAIL();
+
+		setup_mac(mac, gid);
 
 		struct mlx5_wqe_ctrl_seg *ctrl = (struct mlx5_wqe_ctrl_seg *)get_wqe(0);
 		mlx5dv_set_ctrl_seg(ctrl, sqi, op, 0, qp->qp_num, fm_ce_se, ds, 0, 0);
