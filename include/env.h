@@ -1589,7 +1589,7 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 
 	virtual void post_send(ibv_sge sge, enum ibv_wr_opcode opcode,
 			       int flags = IBV_SEND_SIGNALED) {
-		uint8_t mac[6] = {}, gid[16] = {};
+		uint8_t mac[6] = {}, *gid = dremote->pd.ctx.gid.raw;
 		uint8_t fm_ce_se = 0, op, ds = 5;
 
 		if (flags == IBV_SEND_SIGNALED)
@@ -1598,6 +1598,13 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 			op = MLX5_OPCODE_SEND;
 		else
 			FAIL();
+
+		mac[0] = gid[8] ^ 0x02;
+		mac[1] = gid[9];
+		mac[2] = gid[10];
+		mac[3] = gid[13];
+		mac[4] = gid[14];
+		mac[5] = gid[15];
 
 		struct mlx5_wqe_ctrl_seg *ctrl = (struct mlx5_wqe_ctrl_seg *)get_wqe(0);
 		mlx5dv_set_ctrl_seg(ctrl, sqi, op, 0, qp->qp_num, fm_ce_se, ds, 0, 0);
@@ -1613,7 +1620,7 @@ struct ibvt_qp_dc : public ibvt_qp_ud {
 	}
 
 	virtual void rdma(ibv_sge src_sge, ibv_sge dst_sge, enum ibv_wr_opcode opcode, enum ibv_send_flags flags = IBV_SEND_SIGNALED) {
-		uint8_t mac[6] = {}, gid[16] = {};
+		uint8_t mac[6] = {}, *gid = dremote->pd.ctx.gid.raw;
 		uint8_t fm_ce_se = 0, op, ds = 6;
 
 		if (flags == IBV_SEND_SIGNALED)
